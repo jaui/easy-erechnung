@@ -14,9 +14,13 @@ group = "de.aronhomberg"
 version = "1.0-SNAPSHOT"
 
 // Java 17 on Windows defaults to Cp1252; all invoice data is UTF-8.
+// Since Java 19 System.out/err follow stdout.encoding/stderr.encoding instead of file.encoding, so they are
+// set too (ignored by Java 17) – console output then is UTF-8 on every supported Java version.
 // System proxy settings are used for the (optional, user-triggered) validator downloads.
 val jvmDefaults = listOf(
     "-Dfile.encoding=UTF-8",
+    "-Dstdout.encoding=UTF-8",
+    "-Dstderr.encoding=UTF-8",
     "-Djava.net.useSystemProxies=true",
     "-Dlog4j2.loggerContextFactory=org.apache.logging.log4j.simple.SimpleLoggerContextFactory",
 )
