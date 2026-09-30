@@ -213,6 +213,17 @@ public final class ERechnungApp {
         p.setBorder(BorderFactory.createTitledBorder("Ergebnis"));
         resultTable.setRowHeight(24);
         resultTable.setDefaultRenderer(Validators.Check.class, new CheckRenderer());
+        resultTable.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value, boolean sel, boolean focus, int row, int col) {
+                super.getTableCellRendererComponent(table, value, sel, focus, row, col);
+                String text = value == null ? "" : value.toString();
+                // full text of long notes as tooltip, one note per line
+                setToolTipText(text.isEmpty() ? null : "<html>" + text.replace("&", "&amp;").replace("<", "&lt;")
+                        .replace(" · ", "<br>") + "</html>");
+                return this;
+            }
+        });
         resultTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -770,7 +781,8 @@ public final class ERechnungApp {
             }
             if (row.error != null) return "Fehler: " + row.error;
             List<String> notes = new ArrayList<>(row.result.warnings());
-            if (row.result.xrechnung() != null) notes.add(0, "mit XRechnung");
+            // a rejected run starts with its "NICHT übernommen" warning; "mit XRechnung" only for published invoices
+            if (row.result.ok() && row.result.xrechnung() != null) notes.add(0, "mit XRechnung");
             return String.join(" · ", notes);
         }
 
