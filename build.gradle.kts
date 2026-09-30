@@ -10,8 +10,22 @@ tasks.withType<JavaCompile> {
 group = "de.aronhomberg"
 version = "1.0-SNAPSHOT"
 
+// Java 17 on Windows defaults to Cp1252; all invoice data is UTF-8
+val jvmDefaults = listOf(
+    "-Dfile.encoding=UTF-8",
+    "-Dlog4j2.loggerContextFactory=org.apache.logging.log4j.simple.SimpleLoggerContextFactory",
+)
+
 application {
-    mainClass = "de.aronhomberg.Main"
+    mainClass = "de.aronhomberg.ERechnungApp"
+    applicationDefaultJvmArgs = jvmDefaults
+}
+
+/** Optional switches: -Pkosit -Pverapdf -Pxrechnung */
+fun switches() = listOf("kosit", "verapdf", "xrechnung").filter { project.hasProperty(it) }.map { "--$it" }
+
+tasks.withType<JavaExec> {
+    jvmArgs(jvmDefaults)
 }
 
 repositories {
@@ -57,23 +71,23 @@ tasks.register<JavaExec>("convertRechnungen") {
     description = "Convert rechnungen.in (+ verified JSON) to validated ZUGFeRD under rechnungen.out"
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("de.aronhomberg.ConvertRechnungenToZugferd")
-    args(
+    args(listOf(
         project.findProperty("inDir")?.toString() ?: "rechnungen.in",
         project.findProperty("outDir")?.toString() ?: "rechnungen.out",
-        project.findProperty("jsonDir")?.toString() ?: "rechnungen.out/verified"
-    )
+        project.findProperty("jsonDir")?.toString() ?: "rechnungen.out/verified",
+    ) + switches())
 }
+
 tasks.register<JavaExec>("excelRechnungen") {
     group = "application"
     description = "Create validated ZUGFeRD EN16931 invoices (own PDF layout) from an Excel workbook"
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("de.aronhomberg.ExcelRechnungenToZugferd")
-    jvmArgs("-Dlog4j2.loggerContextFactory=org.apache.logging.log4j.simple.SimpleLoggerContextFactory")
     args(listOfNotNull(
         project.findProperty("excel")?.toString() ?: "rechnungen.in/rechnungen.xlsx",
-        project.findProperty("outDir")?.toString() ?: "rechnungen.out/excel",
+        project.findProperty("outDir")?.toString() ?: "rechnungen.out",
         project.findProperty("sheet")?.toString(),
-    ))
+    ) + switches())
 }
 
 tasks.register<JavaExec>("excelVorlage") {
@@ -81,6 +95,16 @@ tasks.register<JavaExec>("excelVorlage") {
     description = "Write the Excel input template with fictitious sample data"
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("de.aronhomberg.ExcelTemplateWriter")
-    jvmArgs("-Dlog4j2.loggerContextFactory=org.apache.logging.log4j.simple.SimpleLoggerContextFactory")
     args(project.findProperty("outFile")?.toString() ?: "templates/excel/rechnungen-vorlage.xlsx")
+}
+
+// cmd.exe limits a line to 8191 characters; the full jar list exceeds it -> use a wildcard classpath
+tasks.named<CreateStartScripts>("startScripts") {
+    doLast {
+        windowsScript.writeText(
+            windowsScript.readLines().joinToString("\r\n") {
+                if (it.startsWith("set CLASSPATH=")) "set CLASSPATH=%APP_HOME%\\lib\\*" else it
+            }
+        )
+    }
 }

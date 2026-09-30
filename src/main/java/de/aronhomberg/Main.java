@@ -1283,7 +1283,8 @@ public class Main {
         if (runningProcess != null) runningProcess.set(process);
 
         try {
-            try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
+            // bun writes UTF-8; the Java 17 default charset on Windows is Cp1252
+            try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     if (isCancelled.getAsBoolean()) {
@@ -1368,7 +1369,7 @@ public class Main {
 
             Process process = pb.start();
             String output;
-            try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
                 output = reader.lines().collect(Collectors.joining("\n"));
             }
 

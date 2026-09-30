@@ -50,7 +50,7 @@ public final class ConvertRechnungenToZugferd {
 
     private static final String EXEMPTION_REASON =
             "Kleinunternehmer gemäß § 19 UStG – es wird keine Umsatzsteuer berechnet.";
-    private static final String VISIBLE_19_NOTE =
+    static final String VISIBLE_19_NOTE =
             "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet (Kleinunternehmerregelung).";
     private static final String[] MONTHS_DE = {
             "Januar", "Februar", "März", "April", "Mai", "Juni",
@@ -58,11 +58,13 @@ public final class ConvertRechnungenToZugferd {
     private static final DateTimeFormatter DATE_DE = DateTimeFormatter.ofPattern("dd.MM.yyyy");
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    public static void main(String[] args) throws Exception {
-        Path inDir = Path.of(args.length > 0 ? args[0] : "rechnungen.in");
-        Path outDir = Path.of(args.length > 1 ? args[1] : "rechnungen.out");
+    public static void main(String[] rawArgs) throws Exception {
+        List<String> args = positional(rawArgs);
+        ERechnungService.Options opt = cliOptions(rawArgs);
+        Path inDir = Path.of(args.size() > 0 ? args.get(0) : "rechnungen.in");
+        Path outDir = Path.of(args.size() > 1 ? args.get(1) : "rechnungen.out");
         // Only manually verified JSON is used; raw OCR/LLM output must be checked and copied there first.
-        Path jsonDir = Path.of(args.length > 2 ? args[2] : "rechnungen.out/verified");
+        Path jsonDir = Path.of(args.size() > 2 ? args.get(2) : "rechnungen.out/verified");
 
         if (!Files.isDirectory(inDir)) {
             System.err.println("Input folder missing: " + inDir.toAbsolutePath());
@@ -95,41 +97,8 @@ public final class ConvertRechnungenToZugferd {
                 if (response == null || response.invoice == null) {
                     throw new IOException("JSON has no Invoice object: " + jsonPath);
                 }
-                Invoice mustang = toMustangInvoice(response.invoice, stem);
-                Path invoiceOut = outDir.resolve(stem);
-                Files.createDirectories(invoiceOut);
-
-                Path originalCopy = invoiceOut.resolve(stem + "-original.pdf");
-                Path pdfaPdf = invoiceOut.resolve(stem + "-unicode-fixed.pdf");
-                Path zugferdPdf = invoiceOut.resolve(stem + "-zugferd.pdf");
-                Path externalXml = invoiceOut.resolve(stem + "-factur-x.xml");
-
-                Files.copy(pdf, originalCopy, StandardCopyOption.REPLACE_EXISTING);
-                // Keep optical identity: only repair missing ToUnicode entries (Word ligatures), no re-rendering.
-                // (Spire's PDF/A conversion replaced ligature glyphs, e.g. "Bitte" rendered as "Biae".)
-                PdfToUnicodeFixer.fix(originalCopy, pdfaPdf);
-                if (allExempt(response.invoice)) {
-                    // §19 UStG / § 34a UStDV: the note must also be visible, not only in the XML (BT-120)
-                    Path stamped = invoiceOut.resolve(stem + "-prepared.pdf");
-                    if (PdfNoteStamper.stamp(pdfaPdf, stamped, VISIBLE_19_NOTE, "§ 19", "§19")) {
-                        System.out.println("Added visible note: " + VISIBLE_19_NOTE);
-                    }
-                    pdfaPdf = stamped;
-                }
-
-                byte[] xml = generateXml(mustang);
-                Files.write(externalXml, xml);
-                Files.write(invoiceOut.resolve(stem + "-zugferd-invoice.xml"), xml);
-
-                embedZugferd(pdfaPdf, zugferdPdf, mustang);
-
-                boolean pdfOk = validate(zugferdPdf, invoiceOut.resolve(stem + "-mustang-pdf-report.xml"));
-                boolean xmlOk = validate(externalXml, invoiceOut.resolve(stem + "-mustang-xml-report.xml"));
-                System.out.println("PDF: " + zugferdPdf.toAbsolutePath());
-                System.out.println("XML: " + externalXml.toAbsolutePath());
-                System.out.println("Mustang PDF: " + (pdfOk ? "VALID" : "INVALID"));
-                System.out.println("Mustang XML: " + (xmlOk ? "VALID" : "INVALID"));
-                if (!pdfOk || !xmlOk) failed++;
+                ERechnungService.Result r = ERechnungService.fromPdf(response.invoice, pdf, outDir, opt, System.out::println);
+                if (!printResult(r)) failed++;
             } catch (Exception e) {
                 failed++;
                 System.err.println("FAILED: " + e.getMessage());
@@ -139,6 +108,29 @@ public final class ConvertRechnungenToZugferd {
 
         System.out.println("\nDone. Failed: " + failed + " / " + pdfs.size());
         if (failed > 0) System.exit(1);
+    }
+
+    /** Arguments without the "--kosit"/"--verapdf"/"--xrechnung" switches. */
+    static List<String> positional(String[] args) {
+        List<String> out = new ArrayList<>();
+        for (String a : args) if (!a.startsWith("--")) out.add(a);
+        return out;
+    }
+
+    /** Mustang always; KoSIT/veraPDF/XRechnung only when switched on (gradle -Pkosit -Pverapdf -Pxrechnung). */
+    static ERechnungService.Options cliOptions(String[] args) {
+        List<String> a = List.of(args);
+        return new ERechnungService.Options(a.contains("--xrechnung"),
+                new Validators.Settings(true, a.contains("--kosit"), a.contains("--verapdf")));
+    }
+
+    /** Prints the result of one invoice; returns false if a validator failed. */
+    static boolean printResult(ERechnungService.Result r) {
+        System.out.println("E-Rechnung: " + r.pdf().toAbsolutePath());
+        if (r.xrechnung() != null) System.out.println("XRechnung:  " + r.xrechnung().toAbsolutePath());
+        r.checks().forEach(c -> System.out.println("  " + c.line()));
+        r.warnings().forEach(w -> System.out.println("  Hinweis: " + w));
+        return r.ok();
     }
 
     static Invoice toMustangInvoice(InvoiceResponse.Invoice src, String stem) {
@@ -290,7 +282,7 @@ public final class ConvertRechnungenToZugferd {
         }
     }
 
-    private static boolean allExempt(InvoiceResponse.Invoice src) {
+    static boolean allExempt(InvoiceResponse.Invoice src) {
         String fallback = src.Tax == null ? null : src.Tax.TaxCategoryCode;
         return src.InvoiceLines.stream().filter(l -> l != null)
                 .allMatch(l -> "E".equals(firstNonBlank(l.TaxCategoryCode, fallback)));
