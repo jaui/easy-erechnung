@@ -117,11 +117,15 @@ public final class ConvertRechnungenToZugferd {
         return out;
     }
 
-    /** Mustang always; KoSIT/veraPDF/XRechnung only when switched on (gradle -Pkosit -Pverapdf -Pxrechnung). */
+    /**
+     * Mustang always; KoSIT/veraPDF/XRechnung only when switched on (gradle -Pkosit -Pverapdf -Pxrechnung).
+     * -PabweichungErlauben publishes an invoice even if its number/amount are not printed on the original PDF.
+     */
     static ERechnungService.Options cliOptions(String[] args) {
         List<String> a = List.of(args);
         return new ERechnungService.Options(a.contains("--xrechnung"),
-                new Validators.Settings(true, a.contains("--kosit"), a.contains("--verapdf")));
+                new Validators.Settings(true, a.contains("--kosit"), a.contains("--verapdf")),
+                a.contains("--abweichungErlauben"));
     }
 
     /** Prints the result of one invoice; returns false if a validator failed. */

@@ -39,6 +39,7 @@ public final class ERechnungApp {
     private final JCheckBox mustangBox = new JCheckBox("Mustang");
     private final JCheckBox kositBox = new JCheckBox("KoSIT");
     private final JCheckBox verapdfBox = new JCheckBox("veraPDF");
+    private final JCheckBox allowMismatchBox = new JCheckBox("Abweichung PDF ↔ Excel zulassen");
     private final SheetModel excelSheets = new SheetModel(false);
     private final SheetModel pdfSheets = new SheetModel(true);
     private final ResultModel results = new ResultModel();
@@ -197,6 +198,11 @@ public final class ERechnungApp {
             int r = table.getSelectedRow();
             if (r >= 0) pdfSheets.setPdf(table.convertRowIndexToModel(r), null);
         }));
+        // deliberately not saved: every run has to allow a mismatch explicitly again
+        allowMismatchBox.setToolTipText("<html>Standard: Stehen Rechnungsnummer oder Betrag aus dem Excel nicht im PDF, wird die "
+                + "Rechnung <b>nicht</b> übernommen,<br>weil das XML (aus dem Excel) rechtlich maßgeblich ist und das "
+                + "sichtbare PDF dann etwas anderes zeigt.</html>");
+        south.add(allowMismatchBox);
         south.add(button("Rechnungen erzeugen", e -> generate(true)));
         p.add(south, BorderLayout.SOUTH);
         return p;
@@ -317,10 +323,17 @@ public final class ERechnungApp {
         }
         Validators.Settings vs = new Validators.Settings(mustangBox.isSelected(), kositBox.isSelected() && kositBox.isEnabled(),
                 verapdfBox.isSelected() && verapdfBox.isEnabled());
-        ERechnungService.Options opt = new ERechnungService.Options(xrechnungBox.isSelected(), vs);
+        boolean allowMismatch = withPdf && allowMismatchBox.isSelected();
+        if (allowMismatch && JOptionPane.showConfirmDialog(frame,
+                "<html>Abweichungen zwischen PDF und Excel wirklich zulassen?<br>Das XML (aus dem Excel) ist maßgeblich – "
+                        + "der Empfänger sieht im PDF aber womöglich andere Angaben.</html>",
+                "Abweichung zulassen", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE) != JOptionPane.OK_OPTION) {
+            return;
+        }
+        ERechnungService.Options opt = new ERechnungService.Options(xrechnungBox.isSelected(), vs, allowMismatch);
         Path out = Path.of(outField.getText());
         String excel = excelField.getText();
-        results.start(vs);
+        results.start(vs, withPdf);
         runInBackground("Rechnungen erzeugen", () -> {
             // re-read the workbook so that the data used is exactly what is saved on disk right now
             Map<String, ExcelInvoiceReader.ExcelInvoice> fresh = new LinkedHashMap<>();
@@ -710,9 +723,10 @@ public final class ERechnungApp {
         final List<ResultRow> rows = new ArrayList<>();
         final List<String> validators = new ArrayList<>();
 
-        void start(Validators.Settings s) {
+        void start(Validators.Settings s, boolean withPdf) {
             rows.clear();
             validators.clear();
+            if (withPdf) validators.add(ERechnungService.MATCH_CHECK);
             if (s.mustang()) validators.add("Mustang");
             if (s.kosit()) validators.add("KoSIT");
             if (s.verapdf()) validators.add("veraPDF");

@@ -40,7 +40,17 @@ final class ERechnungService {
         void step(String message);
     }
 
-    record Options(boolean xrechnung, Validators.Settings validators) {}
+    /**
+     * @param allowMismatch Excel + PDF only: publish even if invoice number or amount due of the data are not
+     *                      printed on the PDF (explicit user decision; default: the invoice is not published)
+     */
+    record Options(boolean xrechnung, Validators.Settings validators, boolean allowMismatch) {
+        Options(boolean xrechnung, Validators.Settings validators) {
+            this(xrechnung, validators, false);
+        }
+    }
+
+    static final String MATCH_CHECK = "Abgleich PDF ↔ Daten";
 
     record Result(String name, Path dir, Path pdf, Path facturX, Path xrechnung, List<Validators.Check> checks, List<String> warnings) {
         boolean ok() {
@@ -59,7 +69,7 @@ final class ERechnungService {
             progress.step(target.name + ": PDF erstellen");
             Path visual = s.work("visuell.pdf");
             InvoicePdfRenderer.render(data, visual);
-            return finish(data, mustang, visual, target, s, new ArrayList<>(), opt, progress);
+            return finish(data, mustang, visual, target, s, new ArrayList<>(), List.of(), opt, progress);
         } catch (Exception e) {
             OutputLayout.deleteRecursively(s.dir);
             throw e;
@@ -77,23 +87,45 @@ final class ERechnungService {
             List<String> warnings = new ArrayList<>();
             Path original = s.work("original.pdf");
             Files.copy(originalPdf, original, StandardCopyOption.REPLACE_EXISTING);
+
+            // no active content in an outgoing invoice (and PDF/A forbids most of it)
+            Path clean = s.work("bereinigt.pdf");
+            List<String> removed = PdfSanitizer.sanitize(original, clean);
+            if (!removed.isEmpty()) {
+                warnings.add("Aus dem Original-PDF entfernt: " + String.join(", ", removed));
+                progress.step(target.name + ": aktive Inhalte entfernt (" + removed.size() + ")");
+            }
+
             Path fixed = s.work("unicode-fixed.pdf");
             // keep the look: only repair missing ToUnicode entries (e.g. Word ligatures), no re-rendering
-            PdfToUnicodeFixer.Report repair = PdfToUnicodeFixer.fix(original, fixed);
+            PdfToUnicodeFixer.Report repair = PdfToUnicodeFixer.fix(clean, fixed);
             for (String problem : repair.problems()) {
                 warnings.add(problem + " – die PDF/A-Prüfung kann deshalb fehlschlagen. Abhilfe: Schrift installieren "
                         + "oder den Ordner mit der Schrift in EASY_ERECHNUNG_FONTS angeben.");
             }
 
+            // The XML (from the data) is legally binding; the visible PDF must show the same invoice.
             String text = pdfText(fixed);
+            List<String> mismatch = new ArrayList<>();
             if (text.isBlank()) {
                 if (ConvertRechnungenToZugferd.allExempt(data)) {
                     throw new IllegalArgumentException("Das PDF hat keine Textebene (Scan?) – der §19-Hinweis kann nicht "
                             + "eingefügt werden. Bitte den Weg „Excel → Rechnung“ nutzen.");
                 }
-                warnings.add("PDF ohne Textebene: Betrag und Rechnungsnummer im PDF konnten nicht geprüft werden");
+                mismatch.add("PDF ohne Textebene: Rechnungsnummer und Betrag im PDF lassen sich nicht abgleichen");
             } else {
-                warnings.addAll(plausibility(text, data));
+                mismatch.addAll(plausibility(text, data));
+            }
+            List<Validators.Check> matchCheck = new ArrayList<>();
+            if (mismatch.isEmpty()) {
+                matchCheck.add(new Validators.Check(MATCH_CHECK, originalPdf.getFileName().toString(), Validators.Status.OK,
+                        "Rechnungsnummer und Betrag stehen im PDF", null));
+            } else {
+                warnings.addAll(mismatch);
+                matchCheck.add(new Validators.Check(MATCH_CHECK, originalPdf.getFileName().toString(),
+                        opt.allowMismatch() ? Validators.Status.WARN : Validators.Status.FAIL,
+                        String.join("; ", mismatch) + (opt.allowMismatch() ? " (ausdrücklich zugelassen)"
+                                : " – nicht übernommen; Abweichung nur mit ausdrücklicher Freigabe zulassen"), null));
             }
 
             Path visual = fixed;
@@ -105,7 +137,7 @@ final class ERechnungService {
                 }
                 visual = stamped;
             }
-            return finish(data, mustang, visual, target, s, warnings, opt, progress);
+            return finish(data, mustang, visual, target, s, warnings, matchCheck, opt, progress);
         } catch (Exception e) {
             OutputLayout.deleteRecursively(s.dir);
             throw e;
@@ -113,7 +145,8 @@ final class ERechnungService {
     }
 
     private static Result finish(InvoiceResponse.Invoice data, Invoice mustang, Path visual, OutputLayout target,
-                                 OutputLayout s, List<String> warnings, Options opt, Progress progress) throws Exception {
+                                 OutputLayout s, List<String> warnings, List<Validators.Check> preChecks,
+                                 Options opt, Progress progress) throws Exception {
         progress.step(target.name + ": E-Rechnung einbetten");
         byte[] xml = ConvertRechnungenToZugferd.generateXml(mustang);
         Files.write(s.facturX(), xml);   // next to the final PDF, byte-identical to the embedded file
@@ -133,7 +166,8 @@ final class ERechnungService {
         }
 
         progress.step(target.name + ": prüfen (" + enabled(opt.validators()) + ")");
-        List<Validators.Check> checks = validators.run(opt.validators(), s.pdf(), xmls, s.checks());
+        List<Validators.Check> checks = new ArrayList<>(preChecks);
+        checks.addAll(validators.run(opt.validators(), s.pdf(), xmls, s.checks()));
 
         // Only a run that no validator rejected replaces the invoice; a rejected run is kept for diagnosis
         // in _letzter-fehlversuch/ and the previous valid invoice stays untouched.

@@ -121,7 +121,11 @@ The window **“E-Rechnungen erstellen”** opens:
    **Tab “Excel + PDF → Rechnung”:** assign the original PDF per sheet (double-click, drag & drop onto the row, or *PDF-Ordner wählen* for an automatic suggestion by invoice number / month in the file name) → *Rechnungen erzeugen*.
 5. The result list shows one traffic light per active validator; *PDF öffnen*, *XML öffnen*, *Ordner öffnen*, *Prüfbericht öffnen*.
 
-For **Excel + PDF** the app warns when the invoice number or the amount due of the sheet are not printed on the chosen PDF, and refuses PDFs that already contain an e-invoice, are encrypted, or have no text layer (scans, where the § 19 note cannot be placed).
+For **Excel + PDF** the XML (from the Excel data) is legally binding, so the visible PDF must show the same invoice:
+
+- **Match check "Abgleich PDF ↔ Daten":** if the invoice number or the amount due of the sheet are not printed on the chosen PDF (or the PDF has no text layer to compare), the invoice is **not published** – it goes to `_letzter-fehlversuch/` like a rejected validation. Only an explicit decision allows it: the checkbox *Abweichung PDF ↔ Excel zulassen* (off by default, never saved, asks for confirmation) or `-PabweichungErlauben` on the command line.
+- **Active content is removed** from the original before embedding: JavaScript, the open action, additional actions of document/pages/annotations, actions forbidden by PDF/A (Launch, SubmitForm, ImportData, …), XFA forms and previously embedded files. Web links and page links stay. Everything removed is listed as a hint.
+- PDFs that already contain an e-invoice, are encrypted, or have no text layer while a § 19 note is needed (scans) are refused.
 
 *Datei → Excel-Vorlage speichern* writes the template with fictitious sample data; *Extras → Prüfprogramme …* shows where KoSIT/veraPDF are installed (and which version) and downloads or updates them; *Extras → Alte OCR-Oberfläche* starts the classic OCR app.
 
@@ -168,6 +172,7 @@ Files are produced in a staging folder and only moved into place when generation
 ./gradlew convertRechnungen [-PinDir=…] [-PoutDir=…] [-PjsonDir=…]
 
 # optional switches for both: -Pxrechnung -Pkosit -Pverapdf   (Mustang always runs)
+# convertRechnungen only: -PabweichungErlauben publishes even if number/amount are not printed on the PDF
 
 ./gradlew excelVorlage [-PoutFile=…]   # write the Excel template
 ./gradlew pruefprogrammeLaden [-Ptools=kosit,verapdf,mustang]   # download validators

@@ -198,7 +198,7 @@ class ERechnungServiceTest {
     }
 
     @Test
-    void existingPdfWithWrongAmountGivesWarning(@TempDir Path out) throws Exception {
+    void existingPdfWithWrongAmountIsNotPublished(@TempDir Path out) throws Exception {
         Path visual = out.resolve("original.pdf");
         InvoicePdfRenderer.render(fresh(), visual);
         InvoiceResponse.Invoice other = fresh();
@@ -207,8 +207,39 @@ class ERechnungServiceTest {
 
         ERechnungService.Result r = ERechnungService.fromPdf(other, visual, out.resolve("x"), MUSTANG, QUIET);
 
-        assertTrue(r.ok(), () -> r.checks().toString());
+        // the binding XML would differ from the visible PDF: not published, kept as failed attempt
+        assertFalse(r.ok());
+        assertTrue(r.dir().endsWith(OutputLayout.FAILED), r.dir().toString());
+        assertTrue(r.checks().stream().anyMatch(c -> c.validator().equals(ERechnungService.MATCH_CHECK)
+                && c.status() == Validators.Status.FAIL), () -> r.checks().toString());
         assertTrue(r.warnings().stream().anyMatch(w -> w.contains("Rechnungsbetrag")), () -> r.warnings().toString());
+        assertFalse(Files.exists(out.resolve("x").resolve(r.name()).resolve(r.name() + ".pdf")));
+    }
+
+    @Test
+    void mismatchCanBeAllowedExplicitly(@TempDir Path out) throws Exception {
+        Path visual = out.resolve("original.pdf");
+        InvoicePdfRenderer.render(fresh(), visual);
+        InvoiceResponse.Invoice other = fresh();
+        other.InvoiceLines.get(0).Quantity = 3;
+        other.MonetarySummation.PayableAmount += 90;
+        ERechnungService.Options allow = new ERechnungService.Options(true, Validators.Settings.mustangOnly(), true);
+
+        ERechnungService.Result r = ERechnungService.fromPdf(other, visual, out.resolve("x"), allow, QUIET);
+
+        assertTrue(r.ok(), () -> r.checks().toString());
+        assertTrue(r.checks().stream().anyMatch(c -> c.validator().equals(ERechnungService.MATCH_CHECK)
+                && c.status() == Validators.Status.WARN), () -> r.checks().toString());
+    }
+
+    @Test
+    void matchingPdfPassesTheMatchCheck(@TempDir Path out) throws Exception {
+        Path visual = out.resolve("original.pdf");
+        InvoicePdfRenderer.render(fresh(), visual);
+        ERechnungService.Result r = ERechnungService.fromPdf(fresh(), visual, out.resolve("x"), MUSTANG, QUIET);
+        assertTrue(r.ok(), () -> r.checks().toString());
+        assertTrue(r.checks().stream().anyMatch(c -> c.validator().equals(ERechnungService.MATCH_CHECK)
+                && c.status() == Validators.Status.OK));
     }
 
     @Test

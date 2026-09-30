@@ -23,8 +23,9 @@ application {
     applicationDefaultJvmArgs = jvmDefaults
 }
 
-/** Optional switches: -Pkosit -Pverapdf -Pxrechnung */
-fun switches() = listOf("kosit", "verapdf", "xrechnung").filter { project.hasProperty(it) }.map { "--$it" }
+/** Optional switches: -Pkosit -Pverapdf -Pxrechnung -PabweichungErlauben (Excel/JSON + PDF: publish despite mismatch) */
+fun switches() = listOf("kosit", "verapdf", "xrechnung", "abweichungErlauben")
+    .filter { project.hasProperty(it) }.map { "--$it" }
 
 tasks.withType<JavaExec> {
     jvmArgs(jvmDefaults)
