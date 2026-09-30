@@ -943,13 +943,13 @@ public class Main {
 
     private static void saveEinstellungen() {
         // JSON Modell settings
-        String jsonApiKey = ((JPasswordField) jsonModellSettingsMap.get("API Key")).getText();
+        String jsonApiKey = new String(((JPasswordField) jsonModellSettingsMap.get("API Key")).getPassword());
         String jsonBaseUrl = ((JTextField) jsonModellSettingsMap.get("Basis URL")).getText().trim();
         String jsonModelName = ((JTextField) jsonModellSettingsMap.get("Modell Name")).getText().trim();
         boolean jsonReasoning = ((JCheckBox) jsonModellSettingsMap.get("Reasoning Enabled")).isSelected();
 
         // OCR Modell settings
-        String ocrApiKey = ((JPasswordField) ocrModellSettingsMap.get("API Key")).getText();
+        String ocrApiKey = new String(((JPasswordField) ocrModellSettingsMap.get("API Key")).getPassword());
         String ocrBaseUrl = ((JTextField) ocrModellSettingsMap.get("Basis URL")).getText().trim();
         String ocrModelName = ((JTextField) ocrModellSettingsMap.get("Modell Name")).getText().trim();
         boolean ocrReasoning = ((JCheckBox) ocrModellSettingsMap.get("Reasoning Enabled")).isSelected();
@@ -2048,9 +2048,9 @@ public class Main {
     private static void handleFileDrop(DropTargetDropEvent dtde, JLabel messageLabel, JFrame frame, JLabel statusBar,
             JSplitPane splitPane) {
         try {
-            List<File> droppedFiles = (List<File>) dtde.getTransferable()
-                    .getTransferData(DataFlavor.javaFileListFlavor);
-            for (File file : droppedFiles) {
+            List<?> dropped = (List<?>) dtde.getTransferable().getTransferData(DataFlavor.javaFileListFlavor);
+            for (Object item : dropped) {
+                if (!(item instanceof File file)) continue;
                 if (file.getName().toLowerCase().endsWith(".pdf")) {
                     if (messageLabel != null) {
                         messageLabel.setText(FILE_ACCEPTED_MSG + file.getName());
