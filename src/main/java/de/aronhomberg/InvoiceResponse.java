@@ -23,6 +23,9 @@ public class InvoiceResponse {
         public String PaymentReceiver;
         public String PaymentReference;
         public String OrderReference;
+        public String BuyerReference; // BT-10, e.g. Leitweg-ID or the buyer's internal reference
+        public String PeriodStart; // optional ISO date; default: month of the invoice number or issue date
+        public String PeriodEnd;
         public Tax Tax;
         public MonetarySummation MonetarySummation;
         public List<InvoiceLine> InvoiceLines;

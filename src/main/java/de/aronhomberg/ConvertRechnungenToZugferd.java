@@ -218,15 +218,18 @@ public final class ConvertRechnungenToZugferd {
                 .setPaymentTermDescription("Zahlbar innerhalb von "
                         + ChronoUnit.DAYS.between(issue, due) + " Tagen ohne Abzug.");
 
-        if (src.PaymentReference != null && !src.PaymentReference.isBlank()) {
-            invoice.setReferenceNumber(src.PaymentReference);
+        String buyerReference = firstNonBlank(src.BuyerReference, src.PaymentReference);
+        if (buyerReference != null) {
+            invoice.setReferenceNumber(buyerReference);
         }
         if (src.OrderReference != null && !src.OrderReference.isBlank()) {
             invoice.setBuyerOrderReferencedDocumentID(src.OrderReference.trim()); // BT-13
         }
-        LocalDate periodStart = billingMonth(src.InvoiceNumber, issue);
-        invoice.setDetailedDeliveryPeriod(toDate(periodStart),
-                toDate(periodStart.withDayOfMonth(periodStart.lengthOfMonth())));
+        LocalDate periodStart = (src.PeriodStart != null && !src.PeriodStart.isBlank())
+                ? LocalDate.parse(src.PeriodStart) : billingMonth(src.InvoiceNumber, issue);
+        LocalDate periodEnd = (src.PeriodEnd != null && !src.PeriodEnd.isBlank())
+                ? LocalDate.parse(src.PeriodEnd) : periodStart.withDayOfMonth(periodStart.lengthOfMonth());
+        invoice.setDetailedDeliveryPeriod(toDate(periodStart), toDate(periodEnd)); // BG-14
 
         int lineNo = 1;
         LocalDate lastServiceDate = null;
@@ -269,7 +272,7 @@ public final class ConvertRechnungenToZugferd {
         // BT-72: last actual service date (avoids an empty ApplicableHeaderTradeDelivery, PEPPOL-EN16931-R008)
         invoice.setDeliveryDate(toDate(lastServiceDate != null
                 ? lastServiceDate
-                : periodStart.withDayOfMonth(periodStart.lengthOfMonth())));
+                : periodEnd));
         checkPayable(src, invoice);
         return invoice;
     }
@@ -294,7 +297,7 @@ public final class ConvertRechnungenToZugferd {
     }
 
     /** First day of the billed month: from an invoice number like "August/2026", else the issue month. */
-    private static LocalDate billingMonth(String invoiceNumber, LocalDate issue) {
+    static LocalDate billingMonth(String invoiceNumber, LocalDate issue) {
         if (invoiceNumber != null) {
             Matcher m = Pattern.compile("(\\p{L}+)\\s*/\\s*(20\\d{2})").matcher(invoiceNumber);
             if (m.find()) {
@@ -339,14 +342,14 @@ public final class ConvertRechnungenToZugferd {
         }
     }
 
-    private static byte[] generateXml(Invoice invoice) {
+    static byte[] generateXml(Invoice invoice) {
         ZUGFeRD2PullProvider provider = new ZUGFeRD2PullProvider();
         provider.setProfile(Profiles.getByName("EN16931"));
         provider.generateXML(invoice);
         return provider.getXML();
     }
 
-    private static void embedZugferd(Path pdfaPdf, Path outPdf, Invoice invoice) throws IOException {
+    static void embedZugferd(Path pdfaPdf, Path outPdf, Invoice invoice) throws IOException {
         // FromA3 + ignorePDFAErrors turns the (non-PDF/A) Word PDF into PDF/A-3 by adding XMP and output intent;
         // conformance is verified afterwards by the Mustang validator (veraPDF).
         ZUGFeRDExporterFromA3 exporter = new ZUGFeRDExporterFromA3()
@@ -364,7 +367,7 @@ public final class ConvertRechnungenToZugferd {
         }
     }
 
-    private static boolean validate(Path source, Path reportPath) throws IOException {
+    static boolean validate(Path source, Path reportPath) throws IOException {
         ZUGFeRDValidator validator = new ZUGFeRDValidator();
         String report = validator.validate(source.toAbsolutePath().toString());
         Files.writeString(reportPath, report, StandardCharsets.UTF_8);
@@ -393,7 +396,7 @@ public final class ConvertRechnungenToZugferd {
         return iban.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
     }
 
-    private static String firstNonBlank(String... values) {
+    static String firstNonBlank(String... values) {
         if (values == null) return null;
         for (String v : values) {
             if (v != null && !v.isBlank()) return v.trim();

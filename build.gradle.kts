@@ -34,6 +34,7 @@ dependencies {
     implementation("org.apache.pdfbox:pdfbox-debugger:3.0.2")
     implementation("org.apache.pdfbox:preflight:3.0.2")
     implementation("org.swinglabs:swingx:1.6.1")
+    implementation("org.apache.poi:poi-ooxml:5.3.0")
 
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
@@ -61,4 +62,25 @@ tasks.register<JavaExec>("convertRechnungen") {
         project.findProperty("outDir")?.toString() ?: "rechnungen.out",
         project.findProperty("jsonDir")?.toString() ?: "rechnungen.out/verified"
     )
+}
+tasks.register<JavaExec>("excelRechnungen") {
+    group = "application"
+    description = "Create validated ZUGFeRD EN16931 invoices (own PDF layout) from an Excel workbook"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("de.aronhomberg.ExcelRechnungenToZugferd")
+    jvmArgs("-Dlog4j2.loggerContextFactory=org.apache.logging.log4j.simple.SimpleLoggerContextFactory")
+    args(listOfNotNull(
+        project.findProperty("excel")?.toString() ?: "rechnungen.in/rechnungen.xlsx",
+        project.findProperty("outDir")?.toString() ?: "rechnungen.out/excel",
+        project.findProperty("sheet")?.toString(),
+    ))
+}
+
+tasks.register<JavaExec>("excelVorlage") {
+    group = "application"
+    description = "Write the Excel input template with fictitious sample data"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("de.aronhomberg.ExcelTemplateWriter")
+    jvmArgs("-Dlog4j2.loggerContextFactory=org.apache.logging.log4j.simple.SimpleLoggerContextFactory")
+    args(project.findProperty("outFile")?.toString() ?: "templates/excel/rechnungen-vorlage.xlsx")
 }
