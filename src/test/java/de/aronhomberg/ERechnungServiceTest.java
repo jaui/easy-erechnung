@@ -102,6 +102,36 @@ class ERechnungServiceTest {
     }
 
     @Test
+    void lockedFileDuringCommitRestoresPreviousInvoice(@TempDir Path out) throws Exception {
+        ERechnungService.Result good = ERechnungService.fromData(fresh(), out, MUSTANG, QUIET);
+        byte[] goodPdf = Files.readAllBytes(good.pdf());
+        byte[] goodXml = Files.readAllBytes(good.facturX());
+
+        OutputLayout.Mover original = OutputLayout.mover;
+        int[] calls = {0};
+        OutputLayout.mover = (from, to) -> {
+            if (++calls[0] == 2) throw new java.nio.file.AccessDeniedException(to.toString()); // 2nd file is "locked"
+            original.move(from, to);
+        };
+        try {
+            java.io.IOException e = assertThrows(java.io.IOException.class, () -> ERechnungService.fromData(fresh(), out, MUSTANG, QUIET));
+            assertTrue(e.getMessage().contains("bisherige Rechnung ist unverändert"), e.getMessage());
+        } finally {
+            OutputLayout.mover = original;
+        }
+        // previous invoice complete and unchanged, no half-new files, no leftovers
+        assertArrayEquals(goodPdf, Files.readAllBytes(good.pdf()));
+        assertArrayEquals(goodXml, Files.readAllBytes(good.facturX()));
+        try (Stream<Path> s = Files.list(good.dir())) {
+            assertEquals(Set.of(good.name() + ".pdf", good.name() + "-factur-x.xml", "_pruefung", "_zwischenschritte"),
+                    s.map(p -> p.getFileName().toString()).collect(Collectors.toSet()));
+        }
+        try (Stream<Path> s = Files.list(out)) {
+            assertEquals(1, s.count());
+        }
+    }
+
+    @Test
     void rejectedFirstRunPublishesNoInvoice(@TempDir Path out) throws Exception {
         ERechnungService.Result bad = withRejectingValidator(() -> ERechnungService.fromData(fresh(), out, MUSTANG, QUIET));
         Path dir = out.resolve(bad.name());

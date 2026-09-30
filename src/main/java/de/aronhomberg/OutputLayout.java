@@ -1,9 +1,11 @@
 package de.aronhomberg;
 
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
@@ -70,13 +72,36 @@ final class OutputLayout {
     /** The layout of the last rejected run inside this invoice folder. */
     OutputLayout failedLayout() { return new OutputLayout(name, failed()); }
 
-    /** Replaces the generated files of {@code this} with the content of {@code staged} (validated run). */
+    /**
+     * Replaces the generated files of {@code this} with the content of {@code staged} (validated run).
+     * The previous files are first moved aside and only deleted after all new files are in place; if a move
+     * fails (e.g. the PDF is locked by a viewer or virus scanner), the new files are removed again and the
+     * previous invoice is restored, so the folder never ends up with a half old / half new invoice.
+     */
     void commit(OutputLayout staged) throws IOException {
         Files.createDirectories(dir);
-        for (Path p : List.of(pdf(), facturX(), xrechnung(), checks(), work())) deleteRecursively(p);
-        for (Path p : List.of(staged.pdf(), staged.facturX(), staged.xrechnung(), staged.checks(), staged.work())) {
-            if (Files.exists(p)) Files.move(p, dir.resolve(p.getFileName()), StandardCopyOption.ATOMIC_MOVE);
+        Path aside = Files.createTempDirectory(dir, ".alt-");
+        List<Path> moved = new ArrayList<>();
+        try {
+            for (Path p : List.of(pdf(), facturX(), xrechnung(), checks(), work())) {
+                if (Files.exists(p)) Files.move(p, aside.resolve(p.getFileName()), StandardCopyOption.ATOMIC_MOVE);
+            }
+            for (Path p : List.of(staged.pdf(), staged.facturX(), staged.xrechnung(), staged.checks(), staged.work())) {
+                if (!Files.exists(p)) continue;
+                Path target = dir.resolve(p.getFileName());
+                mover.move(p, target);
+                moved.add(target);
+            }
+        } catch (IOException e) {
+            for (Path p : moved) deleteRecursively(p);
+            try (DirectoryStream<Path> old = Files.newDirectoryStream(aside)) {
+                for (Path p : old) Files.move(p, dir.resolve(p.getFileName()), StandardCopyOption.ATOMIC_MOVE);
+            }
+            deleteRecursively(aside);
+            throw new IOException("Rechnung konnte nicht übernommen werden (Datei gesperrt?) – die bisherige Rechnung "
+                    + "ist unverändert: " + e.getMessage(), e);
         }
+        deleteRecursively(aside);
         deleteRecursively(staged.dir);
         deleteRecursively(failed()); // an older rejected attempt is obsolete now
     }
@@ -90,6 +115,13 @@ final class OutputLayout {
         deleteRecursively(failed());
         Files.move(staged.dir, failed(), StandardCopyOption.ATOMIC_MOVE);
     }
+
+    /** Moves a new file into place; replaceable in tests to simulate a locked file. */
+    interface Mover {
+        void move(Path from, Path to) throws IOException;
+    }
+
+    static Mover mover = (from, to) -> Files.move(from, to, StandardCopyOption.ATOMIC_MOVE);
 
     static void deleteRecursively(Path p) throws IOException {
         if (!Files.exists(p)) return;
