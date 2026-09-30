@@ -146,9 +146,10 @@ A name that appears twice in `Setup` or in an invoice head is rejected with shee
   Rechnung_<Nr>-xrechnung.xml    ← only if XRechnung was requested and a buyer reference exists
   _pruefung/                     validator reports + zusammenfassung.txt
   _zwischenschritte/             original PDF and intermediate PDFs
+  _letzter-fehlversuch/          only after a run that a validator rejected (complete output + reports)
 ```
 
-Files are produced in a staging folder and only moved into place when everything succeeded — a failed run never destroys the previous valid invoice. Only the files above are replaced.
+Files are produced in a staging folder and only moved into place when generation **and validation** succeeded. If an active validator rejects the invoice, nothing is replaced: the previous valid invoice stays as it is, and the rejected run is kept in `_letzter-fehlversuch/` for diagnosis (the app shows a red traffic light and a hint; the command line exits with an error). The next successful run removes `_letzter-fehlversuch/`. Only the files above are touched.
 
 ### 🔤 Fonts
 

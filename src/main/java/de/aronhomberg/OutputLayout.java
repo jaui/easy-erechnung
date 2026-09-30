@@ -17,14 +17,17 @@ import java.util.stream.Stream;
  *   Rechnung_&lt;Nr&gt;-xrechnung.xml   only if an XRechnung was created
  *   _pruefung/                     validator reports + zusammenfassung.txt
  *   _zwischenschritte/             original and intermediate PDFs
+ *   _letzter-fehlversuch/          only after a run that a validator rejected: its complete output
  * </pre>
- * Files are produced in a staging folder and only moved into place when everything succeeded,
- * so a failed run never destroys the previous valid invoice. Only the files listed above are
- * replaced; anything else in the folder is left alone.
+ * Files are produced in a staging folder and only moved into place when generation <b>and validation</b>
+ * succeeded ({@link #commit}), so a failed or rejected run never replaces the previous valid invoice.
+ * A rejected run is kept for diagnosis in {@code _letzter-fehlversuch/} ({@link #keepFailed}).
+ * Only the files listed above are replaced; anything else in the folder is left alone.
  */
 final class OutputLayout {
     static final String CHECKS = "_pruefung";
     static final String WORK = "_zwischenschritte";
+    static final String FAILED = "_letzter-fehlversuch";
 
     final String name;
     final Path dir;
@@ -62,8 +65,12 @@ final class OutputLayout {
     Path work() { return dir.resolve(WORK); }
     Path work(String file) { return work().resolve(file); }
     Path check(String file) { return checks().resolve(file); }
+    Path failed() { return dir.resolve(FAILED); }
 
-    /** Replaces the generated files of {@code this} with the content of {@code staged}. */
+    /** The layout of the last rejected run inside this invoice folder. */
+    OutputLayout failedLayout() { return new OutputLayout(name, failed()); }
+
+    /** Replaces the generated files of {@code this} with the content of {@code staged} (validated run). */
     void commit(OutputLayout staged) throws IOException {
         Files.createDirectories(dir);
         for (Path p : List.of(pdf(), facturX(), xrechnung(), checks(), work())) deleteRecursively(p);
@@ -71,6 +78,17 @@ final class OutputLayout {
             if (Files.exists(p)) Files.move(p, dir.resolve(p.getFileName()), StandardCopyOption.ATOMIC_MOVE);
         }
         deleteRecursively(staged.dir);
+        deleteRecursively(failed()); // an older rejected attempt is obsolete now
+    }
+
+    /**
+     * Keeps a run that a validator rejected in {@code _letzter-fehlversuch/} (replacing an older one) and
+     * leaves the previous valid invoice untouched.
+     */
+    void keepFailed(OutputLayout staged) throws IOException {
+        Files.createDirectories(dir);
+        deleteRecursively(failed());
+        Files.move(staged.dir, failed(), StandardCopyOption.ATOMIC_MOVE);
     }
 
     static void deleteRecursively(Path p) throws IOException {

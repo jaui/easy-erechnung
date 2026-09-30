@@ -20,6 +20,7 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -46,6 +47,68 @@ class ERechnungServiceTest {
 
     private static InvoiceResponse.Invoice fresh() throws Exception {
         return ExcelInvoiceReader.read(tmp.resolve("vorlage.xlsx")).get(0).data();
+    }
+
+    /** Runs {@code action} with a validator that rejects every invoice (as e.g. veraPDF would). */
+    private static <T> T withRejectingValidator(java.util.concurrent.Callable<T> action) throws Exception {
+        ERechnungService.ValidatorRunner original = ERechnungService.validators;
+        ERechnungService.validators = (settings, pdf, xmls, reportDir) -> {
+            Path report = reportDir.resolve("fake-report.xml");
+            try {
+                Files.writeString(report, "<rejected/>");
+            } catch (java.io.IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+            return List.of(new Validators.Check("Fake", pdf.getFileName().toString(), Validators.Status.FAIL, "abgelehnt", report));
+        };
+        try {
+            return action.call();
+        } finally {
+            ERechnungService.validators = original;
+        }
+    }
+
+    @Test
+    void rejectedRunKeepsPreviousValidInvoice(@TempDir Path out) throws Exception {
+        ERechnungService.Result good = ERechnungService.fromData(fresh(), out, MUSTANG, QUIET);
+        assertTrue(good.ok());
+        byte[] goodPdf = Files.readAllBytes(good.pdf());
+        byte[] goodXml = Files.readAllBytes(good.facturX());
+
+        ERechnungService.Result bad = withRejectingValidator(() -> ERechnungService.fromData(fresh(), out, MUSTANG, QUIET));
+
+        assertFalse(bad.ok());
+        // previous invoice untouched
+        assertArrayEquals(goodPdf, Files.readAllBytes(good.pdf()));
+        assertArrayEquals(goodXml, Files.readAllBytes(good.facturX()));
+        // rejected run kept for diagnosis, result points there
+        Path failed = good.dir().resolve(OutputLayout.FAILED);
+        assertEquals(failed, bad.dir());
+        assertTrue(bad.pdf().startsWith(failed), bad.pdf().toString());
+        assertTrue(Files.isRegularFile(bad.pdf()));
+        assertTrue(Files.isRegularFile(failed.resolve("_pruefung/fake-report.xml")));
+        assertEquals(failed.resolve("_pruefung/fake-report.xml"), bad.checks().get(0).report());
+        assertTrue(Files.readString(failed.resolve("_pruefung/zusammenfassung.txt")).contains("NICHT übernommen"));
+        assertTrue(bad.warnings().get(0).contains("NICHT übernommen"), bad.warnings().toString());
+        // no staging leftovers next to the invoice folder
+        try (Stream<Path> s = Files.list(out)) {
+            assertEquals(1, s.count());
+        }
+
+        // the next successful run replaces the invoice and removes the old failed attempt
+        ERechnungService.Result again = ERechnungService.fromData(fresh(), out, MUSTANG, QUIET);
+        assertTrue(again.ok());
+        assertFalse(Files.exists(failed));
+    }
+
+    @Test
+    void rejectedFirstRunPublishesNoInvoice(@TempDir Path out) throws Exception {
+        ERechnungService.Result bad = withRejectingValidator(() -> ERechnungService.fromData(fresh(), out, MUSTANG, QUIET));
+        Path dir = out.resolve(bad.name());
+        try (Stream<Path> s = Files.list(dir)) {
+            assertEquals(Set.of(OutputLayout.FAILED), s.map(p -> p.getFileName().toString()).collect(Collectors.toSet()));
+        }
+        assertFalse(Files.exists(dir.resolve(bad.name() + ".pdf")));
     }
 
     @Test

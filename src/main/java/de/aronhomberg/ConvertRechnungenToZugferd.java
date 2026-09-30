@@ -126,7 +126,8 @@ public final class ConvertRechnungenToZugferd {
 
     /** Prints the result of one invoice; returns false if a validator failed. */
     static boolean printResult(ERechnungService.Result r) {
-        System.out.println("E-Rechnung: " + r.pdf().toAbsolutePath());
+        System.out.println(r.ok() ? "E-Rechnung: " + r.pdf().toAbsolutePath()
+                : "NICHT übernommen (Prüfung fehlgeschlagen), Fehlversuch: " + r.pdf().toAbsolutePath());
         System.out.println("XML:        " + r.facturX().toAbsolutePath());
         if (r.xrechnung() != null) System.out.println("XRechnung:  " + r.xrechnung().toAbsolutePath());
         r.checks().forEach(c -> System.out.println("  " + c.line()));

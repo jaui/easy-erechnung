@@ -120,7 +120,6 @@ final class ERechnungService {
         ConvertRechnungenToZugferd.embedZugferd(visual, s.pdf(), xml);
 
         List<Path> xmls = new ArrayList<>(List.of(s.facturX()));
-        Path xrechnung = null;
         if (opt.xrechnung()) {
             if (data.BuyerReference == null || data.BuyerReference.isBlank()) {
                 warnings.add("keine XRechnung: Käuferreferenz (BT-10) fehlt");
@@ -130,27 +129,43 @@ final class ERechnungService {
                 xr.generateXML(mustang);
                 Files.write(s.xrechnung(), xr.getXML());
                 xmls.add(s.xrechnung());
-                xrechnung = target.xrechnung();
             }
         }
 
         progress.step(target.name + ": prüfen (" + enabled(opt.validators()) + ")");
-        List<Validators.Check> checks = Validators.run(opt.validators(), s.pdf(), xmls, s.checks());
-        // report paths point into the staging folder until commit; rewrite them to the final location
+        List<Validators.Check> checks = validators.run(opt.validators(), s.pdf(), xmls, s.checks());
+
+        // Only a run that no validator rejected replaces the invoice; a rejected run is kept for diagnosis
+        // in _letzter-fehlversuch/ and the previous valid invoice stays untouched.
+        boolean rejected = checks.stream().anyMatch(c -> c.status() == Validators.Status.FAIL);
+        OutputLayout dest = rejected ? target.failedLayout() : target;
+        if (rejected) {
+            warnings.add(0, "Prüfung fehlgeschlagen – die Rechnung wurde NICHT übernommen, eine vorhandene Rechnung "
+                    + "bleibt unverändert. Fehlversuch mit Prüfberichten: " + dest.dir);
+        }
+        // report paths point into the staging folder until the move; rewrite them to the destination
         List<Validators.Check> finalChecks = new ArrayList<>();
         for (Validators.Check c : checks) {
-            Path report = c.report() == null ? null : target.checks().resolve(c.report().getFileName());
+            Path report = c.report() == null ? null : dest.checks().resolve(c.report().getFileName());
             finalChecks.add(new Validators.Check(c.validator(), c.target(), c.status(), c.summary(), report));
         }
         List<String> summary = new ArrayList<>();
-        summary.add("E-Rechnung " + target.name + " – " + LocalDate.now());
+        summary.add("E-Rechnung " + target.name + " – " + LocalDate.now() + (rejected ? " – NICHT übernommen" : ""));
         finalChecks.forEach(c -> summary.add(c.line()));
         warnings.forEach(w -> summary.add("Hinweis: " + w));
         Files.write(s.check("zusammenfassung.txt"), summary, StandardCharsets.UTF_8);
 
-        target.commit(s);
-        return new Result(target.name, target.dir, target.pdf(), target.facturX(), xrechnung, finalChecks, warnings);
+        if (rejected) target.keepFailed(s); else target.commit(s);
+        return new Result(target.name, dest.dir, dest.pdf(), dest.facturX(),
+                Files.exists(dest.xrechnung()) ? dest.xrechnung() : null, finalChecks, warnings);
     }
+
+    /** Validator call; replaceable in tests to simulate a rejected invoice. */
+    interface ValidatorRunner {
+        List<Validators.Check> run(Validators.Settings settings, Path pdf, List<Path> xmls, Path reportDir);
+    }
+
+    static ValidatorRunner validators = Validators::run;
 
     /** Same period for PDF and XML: explicit values, else the billed month. */
     static void applyDefaultPeriod(InvoiceResponse.Invoice src) {
