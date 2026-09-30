@@ -22,6 +22,7 @@ public class InvoiceResponse {
         public String BankName;
         public String PaymentReceiver;
         public String PaymentReference;
+        public String OrderReference;
         public Tax Tax;
         public MonetarySummation MonetarySummation;
         public List<InvoiceLine> InvoiceLines;
@@ -35,6 +36,9 @@ public class InvoiceResponse {
             public String CountryCode;
             public String TaxIdentificationNumber;
             public String TaxVATNumber;
+            public String ContactName;
+            public String Email;
+            public String Phone;
         }
 
         @JsonIgnoreProperties(ignoreUnknown = true)
@@ -42,6 +46,7 @@ public class InvoiceResponse {
             public String Type;
             public PaymentInformation PaymentInformation;
 
+            @JsonIgnoreProperties(ignoreUnknown = true)
             public static class PaymentInformation {
                 public String IBAN;
                 public String BIC;
@@ -57,6 +62,7 @@ public class InvoiceResponse {
             public String TaxCategoryCode;
             public double TaxPercentage;
             public double TaxAmount;
+            public String TaxExemptionReason;
         }
 
         @JsonIgnoreProperties(ignoreUnknown = true)
@@ -77,6 +83,7 @@ public class InvoiceResponse {
             public String TaxCategoryCode;
             public double TaxPercentage;
             public String Unit;
+            public String ServiceDate;
         }
     }
 }

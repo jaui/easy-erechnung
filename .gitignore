@@ -51,3 +51,10 @@ verify_multipage.pdf
 demo/
 agents.md
 .agentsignore
+# secrets & local invoice IO
+openrouter_key.txt
+.env
+rechnungen.in/
+rechnungen.out/
+
+rechnung.sample.xml/

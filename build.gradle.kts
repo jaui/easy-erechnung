@@ -3,6 +3,10 @@ plugins {
     id("application")
 }
 
+tasks.withType<JavaCompile> {
+    options.encoding = "UTF-8"
+}
+
 group = "de.aronhomberg"
 version = "1.0-SNAPSHOT"
 
@@ -37,4 +41,24 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+tasks.register<JavaExec>("buildERechnung") {
+    group = "application"
+    description = "Create Factur-X/ZUGFeRD EN16931 PDF + external XML and validate with Mustang"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("de.aronhomberg.BuildZugferdInvoice")
+    args(project.findProperty("outDir")?.toString() ?: "rechnungen.out/erechnung")
+}
+
+tasks.register<JavaExec>("convertRechnungen") {
+    group = "application"
+    description = "Convert rechnungen.in (+ verified JSON) to validated ZUGFeRD under rechnungen.out"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("de.aronhomberg.ConvertRechnungenToZugferd")
+    args(
+        project.findProperty("inDir")?.toString() ?: "rechnungen.in",
+        project.findProperty("outDir")?.toString() ?: "rechnungen.out",
+        project.findProperty("jsonDir")?.toString() ?: "rechnungen.out/verified"
+    )
 }

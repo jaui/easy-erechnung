@@ -9,11 +9,13 @@
 	"scripts": {
 		"build": "bun",
 		"start": "bun run src/ocr.ts",
-		"e2e": "bun run src/e2e.ts"
+		"e2e": "bun run src/e2e.ts",
+		"pdf-text": "bun run src/pdf-text-to-json.ts"
 	},
 	"dependencies": {
 		"jimp": "^0.16.1",
 		"pdf-to-img": "^5.0.0",
+		"unpdf": "^1.8.1",
 		"wasm-csv-parser": "^1.1.0"
 	},
 	"devDependencies": {
