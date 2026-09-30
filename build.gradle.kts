@@ -3,8 +3,11 @@ plugins {
     id("application")
 }
 
+// Minimum Java version for users is 17: always compile for 17, whichever (newer) JDK builds it.
+// CI additionally runs the tests on Java 25.
 tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
+    options.release = 17
 }
 
 group = "de.aronhomberg"
@@ -55,6 +58,7 @@ dependencies {
 
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher") // required explicitly since Gradle 9
 }
 
 tasks.test {

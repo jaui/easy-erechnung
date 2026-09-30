@@ -41,7 +41,7 @@ Three ways to an e-invoice:
 
 ## 🚀 Setup
 
-Requirements: **Java 17+**. The Gradle wrapper is included.
+Requirements: **Java 17 or newer** (the app is compiled for Java 17; CI tests it with Java 17 and 25, the newest LTS). The Gradle wrapper (Gradle 9.8) is included and checks the downloaded distribution by SHA-256.
 
 ```bash
 # macOS / Linux: install Ollama + models for the OCR app (optional for the Excel flows)
@@ -96,7 +96,7 @@ easy-e-rechnung runs on **macOS, Linux and Windows**. The [CI](https://github.co
 **macOS setup:**
 
 ```bash
-brew install --cask temurin@17     # Java 17
+brew install --cask temurin@21     # any Java 17 or newer works (17, 21, 25 …)
 ./start.sh                          # or: ./gradlew run
 ```
 

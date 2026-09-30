@@ -22,11 +22,13 @@ env:
 
 jobs:
   build:
-    name: build (${{ matrix.os }})
+    name: build (${{ matrix.os }}, Java ${{ matrix.java }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        # 17 = minimum version for users (bytecode level), 25 = newest LTS
+        java: ["17", "25"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -34,7 +36,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: ${{ matrix.java }}
 
       - uses: gradle/actions/setup-gradle@v6
 
@@ -51,7 +53,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: build-reports-${{ matrix.os }}
+          name: build-reports-${{ matrix.os }}-java${{ matrix.java }}
           path: |
             build/reports/tests
             build/ci/out
