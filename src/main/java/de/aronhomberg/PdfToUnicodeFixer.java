@@ -13,8 +13,6 @@ import org.apache.pdfbox.cos.COSStream;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDResources;
-import org.apache.pdfbox.pdmodel.font.FontMappers;
-import org.apache.pdfbox.pdmodel.font.FontMapping;
 import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.font.PDTrueTypeFont;
 
@@ -36,16 +34,23 @@ import java.util.TreeMap;
  * ligature glyphs (e.g. "ti", "tt", "ft" in Calibri). Without them the text layer reads
  * "Tä`gkeit" instead of "Tätigkeit" and PDF/A-3u validation fails (ISO 19005-3, 6.2.11.7.2).
  * <p>
- * Each unmapped glyph is matched by outline against the installed system font; ligature
+ * Each unmapped glyph is matched by outline against the installed font ({@link SystemFonts}); ligature
  * glyphs are resolved to their component characters via the font's GSUB ligature table.
  * The page content is not touched, so the visual appearance stays identical.
  */
 public final class PdfToUnicodeFixer {
     private PdfToUnicodeFixer() {}
 
-    /** Writes a repaired copy of {@code in} to {@code out}; returns the number of added mappings. */
-    public static int fix(Path in, Path out) throws IOException {
+    /**
+     * Result of a repair: number of added mappings and, per font, what could not be repaired
+     * (font not installed, or glyphs that did not match the installed font version).
+     */
+    public record Report(int added, List<String> problems) {}
+
+    /** Writes a repaired copy of {@code in} to {@code out}. */
+    public static Report fix(Path in, Path out) throws IOException {
         int added = 0;
+        List<String> problems = new ArrayList<>();
         try (PDDocument doc = Loader.loadPDF(in.toFile())) {
             Set<COSDictionary> done = new HashSet<>();
             for (PDPage page : doc.getPages()) {
@@ -54,16 +59,16 @@ public final class PdfToUnicodeFixer {
                 for (COSName name : res.getFontNames()) {
                     PDFont font = res.getFont(name);
                     if (font instanceof PDTrueTypeFont tt && done.add(tt.getCOSObject())) {
-                        added += fixFont(doc, tt);
+                        added += fixFont(doc, tt, problems);
                     }
                 }
             }
             doc.save(out.toFile());
         }
-        return added;
+        return new Report(added, problems);
     }
 
-    private static int fixFont(PDDocument doc, PDTrueTypeFont font) throws IOException {
+    private static int fixFont(PDDocument doc, PDTrueTypeFont font, List<String> problems) throws IOException {
         Map<Integer, String> unicode = new TreeMap<>();
         List<Integer> missing = new ArrayList<>();
         for (int code = 0; code < 256; code++) {
@@ -74,9 +79,12 @@ public final class PdfToUnicodeFixer {
         if (missing.isEmpty()) return 0;
 
         String baseName = font.getName().replaceFirst("^[A-Z]{6}[+]", "");
-        FontMapping<TrueTypeFont> mapping = FontMappers.instance().getTrueTypeFont(baseName, null);
-        if (mapping == null || mapping.isFallback()) return 0;
-        TrueTypeFont system = mapping.getFont();
+        TrueTypeFont system = SystemFonts.find(baseName);
+        if (system == null) {
+            problems.add("Schrift " + baseName + " nicht gefunden – " + missing.size()
+                    + " Zeichen (z. B. Ligaturen) bleiben ohne Textzuordnung");
+            return 0;
+        }
         TrueTypeFont subset = font.getTrueTypeFont();
 
         // outline -> glyph id; outlines shared by several glyphs (e.g. accents drawn alike) are ambiguous (-1)
@@ -107,6 +115,10 @@ public final class PdfToUnicodeFixer {
                 added++;
                 System.out.println("ToUnicode " + font.getName() + " code " + code + " -> \"" + text + "\"");
             }
+        }
+        if (added < missing.size()) {
+            problems.add("Schrift " + baseName + ": " + (missing.size() - added)
+                    + " Zeichen passen nicht zur installierten Schriftversion und bleiben ohne Textzuordnung");
         }
         if (added > 0) {
             COSStream cmapStream = doc.getDocument().createCOSStream();

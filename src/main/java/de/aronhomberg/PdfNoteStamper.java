@@ -5,8 +5,6 @@ import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
-import org.apache.pdfbox.pdmodel.font.FontMappers;
-import org.apache.pdfbox.pdmodel.font.FontMapping;
 import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.font.PDType0Font;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -19,7 +17,8 @@ import java.util.List;
 /**
  * Adds a single line of text below the last text line of the last page, in the body font of
  * the document (e.g. the §19 UStG note that the paper invoice is missing). The font is
- * embedded as a subset with ToUnicode, so the result stays PDF/A-compatible.
+ * embedded as a subset with ToUnicode, so the result stays PDF/A-compatible. Without the original font
+ * the bundled Liberation Sans is used.
  */
 public final class PdfNoteStamper {
     private PdfNoteStamper() {}
@@ -60,12 +59,10 @@ public final class PdfNoteStamper {
         }
     }
 
-    private static PDFont loadFont(PDDocument doc, String baseName) throws IOException {
-        FontMapping<TrueTypeFont> mapping = FontMappers.instance().getTrueTypeFont(baseName, null);
-        if (mapping == null || mapping.isFallback()) {
-            mapping = FontMappers.instance().getTrueTypeFont("Arial", null);
-        }
-        return PDType0Font.load(doc, mapping.getFont(), true);
+    /** The document's own body font if installed, else the bundled Liberation Sans (never an arbitrary substitute). */
+    static PDFont loadFont(PDDocument doc, String baseName) throws IOException {
+        TrueTypeFont installed = SystemFonts.find(baseName);
+        return installed != null ? PDType0Font.load(doc, installed, true) : BundledFonts.regular(doc);
     }
 
     /** Collects the left text edge, the lowest baseline and the body font of the page. */

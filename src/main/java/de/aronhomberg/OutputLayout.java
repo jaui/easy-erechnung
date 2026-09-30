@@ -13,9 +13,10 @@ import java.util.stream.Stream;
  * <pre>
  * &lt;out&gt;/Rechnung_&lt;Nr&gt;/
  *   Rechnung_&lt;Nr&gt;.pdf             final e-invoice (ZUGFeRD / Factur-X, PDF/A-3)
+ *   Rechnung_&lt;Nr&gt;-factur-x.xml    the XML embedded in the PDF (byte-identical)
  *   Rechnung_&lt;Nr&gt;-xrechnung.xml   only if an XRechnung was created
  *   _pruefung/                     validator reports + zusammenfassung.txt
- *   _zwischenschritte/             original, intermediate PDFs, factur-x.xml
+ *   _zwischenschritte/             original and intermediate PDFs
  * </pre>
  * Files are produced in a staging folder and only moved into place when everything succeeded,
  * so a failed run never destroys the previous valid invoice. Only the files listed above are
@@ -40,8 +41,14 @@ final class OutputLayout {
 
     /** A fresh staging layout next to the target (same volume, so the final move is cheap). */
     OutputLayout staging() throws IOException {
-        Files.createDirectories(dir.getParent());
-        Path tmp = Files.createTempDirectory(dir.getParent(), "." + name + "-");
+        Path tmp;
+        try {
+            Files.createDirectories(dir.getParent());
+            tmp = Files.createTempDirectory(dir.getParent(), "." + name + "-");
+        } catch (IOException e) {
+            throw new IOException("Ausgabeordner nicht beschreibbar: " + dir.getParent()
+                    + " – bitte einen anderen Ausgabeordner wählen", e);
+        }
         OutputLayout s = new OutputLayout(name, tmp);
         Files.createDirectories(s.checks());
         Files.createDirectories(s.work());
@@ -49,6 +56,7 @@ final class OutputLayout {
     }
 
     Path pdf() { return dir.resolve(name + ".pdf"); }
+    Path facturX() { return dir.resolve(name + "-factur-x.xml"); }
     Path xrechnung() { return dir.resolve(name + "-xrechnung.xml"); }
     Path checks() { return dir.resolve(CHECKS); }
     Path work() { return dir.resolve(WORK); }
@@ -58,8 +66,8 @@ final class OutputLayout {
     /** Replaces the generated files of {@code this} with the content of {@code staged}. */
     void commit(OutputLayout staged) throws IOException {
         Files.createDirectories(dir);
-        for (Path p : List.of(pdf(), xrechnung(), checks(), work())) deleteRecursively(p);
-        for (Path p : List.of(staged.pdf(), staged.xrechnung(), staged.checks(), staged.work())) {
+        for (Path p : List.of(pdf(), facturX(), xrechnung(), checks(), work())) deleteRecursively(p);
+        for (Path p : List.of(staged.pdf(), staged.facturX(), staged.xrechnung(), staged.checks(), staged.work())) {
             if (Files.exists(p)) Files.move(p, dir.resolve(p.getFileName()), StandardCopyOption.ATOMIC_MOVE);
         }
         deleteRecursively(staged.dir);

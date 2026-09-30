@@ -10,9 +10,11 @@ tasks.withType<JavaCompile> {
 group = "de.aronhomberg"
 version = "1.0-SNAPSHOT"
 
-// Java 17 on Windows defaults to Cp1252; all invoice data is UTF-8
+// Java 17 on Windows defaults to Cp1252; all invoice data is UTF-8.
+// System proxy settings are used for the (optional, user-triggered) validator downloads.
 val jvmDefaults = listOf(
     "-Dfile.encoding=UTF-8",
+    "-Djava.net.useSystemProxies=true",
     "-Dlog4j2.loggerContextFactory=org.apache.logging.log4j.simple.SimpleLoggerContextFactory",
 )
 
@@ -107,4 +109,12 @@ tasks.named<CreateStartScripts>("startScripts") {
             }
         )
     }
+}
+
+tasks.register<JavaExec>("pruefprogrammeLaden") {
+    group = "application"
+    description = "Download KoSIT validator (+ XRechnung configuration) and veraPDF [-Ptools=kosit,verapdf,mustang]"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("de.aronhomberg.ToolDownloader")
+    args(project.findProperty("tools")?.toString() ?: "kosit,verapdf")
 }

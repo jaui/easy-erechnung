@@ -182,14 +182,9 @@ public final class BuildZugferdInvoice {
             PDPage page = new PDPage(PDRectangle.A4);
             doc.addPage(page);
 
-            // Embed TrueType fonts (required for PDF/A); Standard 14 fonts are not embeddable.
-            Path arial = Path.of("C:/Windows/Fonts/arial.ttf");
-            Path arialBold = Path.of("C:/Windows/Fonts/arialbd.ttf");
-            if (!Files.isRegularFile(arial) || !Files.isRegularFile(arialBold)) {
-                throw new IOException("Embedded fonts required for PDF/A: C:/Windows/Fonts/arial.ttf missing");
-            }
-            PDType0Font font = PDType0Font.load(doc, arial.toFile());
-            PDType0Font fontBold = PDType0Font.load(doc, arialBold.toFile());
+            // Embedded TrueType fonts (required for PDF/A); Standard 14 fonts are not embeddable.
+            PDType0Font font = BundledFonts.regular(doc);
+            PDType0Font fontBold = BundledFonts.bold(doc);
 
             float margin = 50;
             float y = page.getMediaBox().getHeight() - margin;

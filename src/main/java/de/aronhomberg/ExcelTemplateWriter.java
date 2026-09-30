@@ -37,7 +37,7 @@ public final class ExcelTemplateWriter {
             String[] lines = {
                     "Rechnungen für easy-erechnung (ZUGFeRD / Factur-X EN16931, optional XRechnung)",
                     "",
-                    "Blatt \"Setup\": eigene Daten (Name → Wert). Kleinunternehmer = ja → § 19 UStG, keine Umsatzsteuer.",
+                    "Blatt \"Setup\": eigene Daten (Spalte A Bezeichnung, Spalte B Wert). Kleinunternehmer = ja → § 19 UStG, keine Umsatzsteuer.",
                     "Blatt \"Kunden\": ein Kunde pro Zeile; im Rechnungsblatt wird er über das Kürzel ausgewählt.",
                     "Jedes weitere Blatt = eine Rechnung (Blattname frei, z. B. 2026-09). Blätter mit \"_\" am Anfang werden ignoriert.",
                     "  Kopf: Rechnungsnummer, Rechnungsdatum, Kunde, optional Bestellnummer, Käuferreferenz (Leitweg-ID/BT-10),",
@@ -54,7 +54,7 @@ public final class ExcelTemplateWriter {
 
             Sheet setup = wb.createSheet(ExcelInvoiceReader.SETUP);
             Object[][] setupRows = {
-                    {"Name", "Wert"},
+                    {"Bezeichnung", "Wert"},
                     {"Name", "Max Mustermann"},
                     {"Straße", "Musterweg 1"},
                     {"PLZ", "01067"},

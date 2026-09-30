@@ -127,6 +127,7 @@ public final class ConvertRechnungenToZugferd {
     /** Prints the result of one invoice; returns false if a validator failed. */
     static boolean printResult(ERechnungService.Result r) {
         System.out.println("E-Rechnung: " + r.pdf().toAbsolutePath());
+        System.out.println("XML:        " + r.facturX().toAbsolutePath());
         if (r.xrechnung() != null) System.out.println("XRechnung:  " + r.xrechnung().toAbsolutePath());
         r.checks().forEach(c -> System.out.println("  " + c.line()));
         r.warnings().forEach(w -> System.out.println("  Hinweis: " + w));
@@ -341,7 +342,11 @@ public final class ConvertRechnungenToZugferd {
         return provider.getXML();
     }
 
-    static void embedZugferd(Path pdfaPdf, Path outPdf, Invoice invoice) throws IOException {
+    /**
+     * Embeds exactly {@code xml} (the bytes also written next to the PDF) as factur-x.xml, so the
+     * embedded and the separate XML are identical by construction.
+     */
+    static void embedZugferd(Path pdfaPdf, Path outPdf, byte[] xml) throws IOException {
         // FromA3 + ignorePDFAErrors turns the (non-PDF/A) Word PDF into PDF/A-3 by adding XMP and output intent;
         // conformance is verified afterwards by the Mustang validator (veraPDF).
         ZUGFeRDExporterFromA3 exporter = new ZUGFeRDExporterFromA3()
@@ -352,7 +357,7 @@ public final class ConvertRechnungenToZugferd {
                 .setProfile("EN16931")
                 .load(pdfaPdf.toString());
         try {
-            exporter.setTransaction(invoice);
+            exporter.setXML(xml);
             exporter.export(outPdf.toString());
         } finally {
             exporter.close();

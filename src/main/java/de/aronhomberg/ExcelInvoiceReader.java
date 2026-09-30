@@ -14,7 +14,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.file.Path;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -23,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Reads invoices from an Excel workbook:
@@ -211,7 +211,15 @@ public final class ExcelInvoiceReader {
             Row row = sheet.getRow(r);
             if (row == null) continue;
             String k = key(text(row.getCell(0)));
-            if (!k.isEmpty()) map.put(k, row.getCell(1));
+            // header row "Bezeichnung | Wert" (older templates: "Name | Wert") is not a value
+            if (k.isEmpty() || "wert".equals(key(text(row.getCell(1))))) continue;
+            if (map.containsKey(k)) {
+                // the same name twice is only ambiguous if the values differ
+                if (Objects.equals(text(map.get(k)), text(row.getCell(1)))) continue;
+                throw new IllegalArgumentException("Blatt \"" + sheet.getSheetName() + "\" Zeile " + (r + 1)
+                        + ": \"" + text(row.getCell(0)) + "\" steht doppelt mit unterschiedlichen Werten");
+            }
+            map.put(k, row.getCell(1));
         }
         return map;
     }
@@ -267,7 +275,7 @@ public final class ExcelInvoiceReader {
     private static LocalDate date(Cell cell, String where) {
         if (cell == null) return null;
         if (cell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
-            return cell.getDateCellValue().toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+            return cell.getLocalDateTimeCellValue().toLocalDate();
         }
         String t = text(cell);
         if (isBlank(t)) return null;

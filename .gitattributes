@@ -1,0 +1,15 @@
+# Shell scripts must keep LF (macOS/Linux), Windows batch files CRLF.
+*.sh    text eol=lf
+gradlew text eol=lf
+*.bat   text eol=crlf
+
+# Binary files: never touch line endings, no textual diff.
+*.ttf   binary
+*.xlsx  binary
+*.docx  binary
+*.pdf   binary
+*.png   binary
+*.jar   binary
+
+# Bundesbank BLZ data is stored with CRLF as published; keep it byte-for-byte.
+data/*.csv -text

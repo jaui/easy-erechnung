@@ -23,7 +23,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Renders the visible invoice PDF (A4, Arial embedded, no ligatures) from the converter's JSON model.
+ * Renders the visible invoice PDF (A4, bundled Liberation Sans embedded, no ligatures) from the converter's JSON model.
  * The layout mirrors the RechnungFertig template "Kleinunternehmer": address window, info block,
  * item table with page breaks, totals, §19 note or VAT line, three-column footer with bank details.
  */
@@ -47,8 +47,8 @@ public final class InvoicePdfRenderer {
 
     public static void render(InvoiceResponse.Invoice inv, Path out) throws IOException {
         try (PDDocument doc = new PDDocument()) {
-            PDFont regular = PDType0Font.load(doc, font("arial.ttf").toFile());
-            PDFont bold = PDType0Font.load(doc, font("arialbd.ttf").toFile());
+            PDFont regular = BundledFonts.regular(doc);
+            PDFont bold = BundledFonts.bold(doc);
             Ctx ctx = new Ctx(doc, regular, bold);
             PDDocumentInformation info = doc.getDocumentInformation();
             info.setTitle("Rechnung " + inv.InvoiceNumber);
@@ -322,11 +322,5 @@ public final class InvoicePdfRenderer {
 
     private static String iban(String iban) {
         return iban.replaceAll("\\s+", "").replaceAll("(.{4})", "$1 ").trim();
-    }
-
-    private static Path font(String file) throws IOException {
-        Path p = Path.of(System.getenv().getOrDefault("WINDIR", "C:/Windows"), "Fonts", file);
-        if (!Files.isRegularFile(p)) throw new IOException("Font for PDF/A embedding missing: " + p);
-        return p;
     }
 }

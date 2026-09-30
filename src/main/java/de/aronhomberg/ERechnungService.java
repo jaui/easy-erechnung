@@ -42,7 +42,7 @@ final class ERechnungService {
 
     record Options(boolean xrechnung, Validators.Settings validators) {}
 
-    record Result(String name, Path dir, Path pdf, Path xrechnung, List<Validators.Check> checks, List<String> warnings) {
+    record Result(String name, Path dir, Path pdf, Path facturX, Path xrechnung, List<Validators.Check> checks, List<String> warnings) {
         boolean ok() {
             return checks.stream().noneMatch(c -> c.status() == Validators.Status.FAIL);
         }
@@ -79,7 +79,11 @@ final class ERechnungService {
             Files.copy(originalPdf, original, StandardCopyOption.REPLACE_EXISTING);
             Path fixed = s.work("unicode-fixed.pdf");
             // keep the look: only repair missing ToUnicode entries (e.g. Word ligatures), no re-rendering
-            PdfToUnicodeFixer.fix(original, fixed);
+            PdfToUnicodeFixer.Report repair = PdfToUnicodeFixer.fix(original, fixed);
+            for (String problem : repair.problems()) {
+                warnings.add(problem + " – die PDF/A-Prüfung kann deshalb fehlschlagen. Abhilfe: Schrift installieren "
+                        + "oder den Ordner mit der Schrift in EASY_ERECHNUNG_FONTS angeben.");
+            }
 
             String text = pdfText(fixed);
             if (text.isBlank()) {
@@ -111,11 +115,11 @@ final class ERechnungService {
     private static Result finish(InvoiceResponse.Invoice data, Invoice mustang, Path visual, OutputLayout target,
                                  OutputLayout s, List<String> warnings, Options opt, Progress progress) throws Exception {
         progress.step(target.name + ": E-Rechnung einbetten");
-        Path facturX = s.work("factur-x.xml");
-        Files.write(facturX, ConvertRechnungenToZugferd.generateXml(mustang));
-        ConvertRechnungenToZugferd.embedZugferd(visual, s.pdf(), mustang);
+        byte[] xml = ConvertRechnungenToZugferd.generateXml(mustang);
+        Files.write(s.facturX(), xml);   // next to the final PDF, byte-identical to the embedded file
+        ConvertRechnungenToZugferd.embedZugferd(visual, s.pdf(), xml);
 
-        List<Path> xmls = new ArrayList<>(List.of(facturX));
+        List<Path> xmls = new ArrayList<>(List.of(s.facturX()));
         Path xrechnung = null;
         if (opt.xrechnung()) {
             if (data.BuyerReference == null || data.BuyerReference.isBlank()) {
@@ -145,7 +149,7 @@ final class ERechnungService {
         Files.write(s.check("zusammenfassung.txt"), summary, StandardCharsets.UTF_8);
 
         target.commit(s);
-        return new Result(target.name, target.dir, target.pdf(), xrechnung, finalChecks, warnings);
+        return new Result(target.name, target.dir, target.pdf(), target.facturX(), xrechnung, finalChecks, warnings);
     }
 
     /** Same period for PDF and XML: explicit values, else the billed month. */

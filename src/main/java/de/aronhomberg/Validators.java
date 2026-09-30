@@ -8,6 +8,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -20,7 +22,8 @@ import java.util.regex.Pattern;
  *       "EN16931 XRechnung (CII)", ...</li>
  *   <li>veraPDF CLI (subprocess), profile PDF/A-3b</li>
  * </ul>
- * External tools are looked up under %LOCALAPPS% (default C:\localapps).
+ * External tools are looked up in {@link #searchRoots()}: %LOCALAPPS%, the user folder and the program
+ * folder {@code tools/} (see {@link AppDirs}, filled by {@link ToolDownloader}), then C:\localapps / ~/localapps.
  */
 final class Validators {
     private Validators() {}
@@ -37,16 +40,57 @@ final class Validators {
         static Settings mustangOnly() { return new Settings(true, false, false); }
     }
 
+    static final String KOSIT = "kosit-validator";
+    static final String VERAPDF = "verapdf";
+
+    /** Where a tool was found and why that folder was searched (shown in tooltips and the log). */
+    record ToolLocation(Path dir, String origin) {}
+
+    /** OS default tool root: C:\localapps on Windows, ~/localapps elsewhere; LOCALAPPS overrides. */
     static Path localapps() {
-        String env = System.getenv("LOCALAPPS");
-        return Path.of(env == null || env.isBlank() ? "C:/localapps" : env);
+        return localapps(System.getenv(), System.getProperty("os.name", ""), Path.of(System.getProperty("user.home")));
     }
 
-    static Path kositDir() { return localapps().resolve("kosit-validator"); }
-    static Path verapdfDir() { return localapps().resolve("verapdf"); }
+    static Path localapps(Map<String, String> env, String osName, Path home) {
+        String v = env.get("LOCALAPPS");
+        if (v != null && !v.isBlank()) return Path.of(v);
+        return osName.toLowerCase(Locale.ROOT).contains("win") ? Path.of("C:/localapps") : home.resolve("localapps");
+    }
 
-    static Path kositJar() {
-        Path dir = kositDir();
+    /** Tool roots in search order: LOCALAPPS, user folder, program folder tools/, OS default. */
+    static List<ToolLocation> searchRoots() {
+        return searchRoots(System.getenv(), localapps(), AppDirs.userTools(), AppDirs.programTools());
+    }
+
+    static List<ToolLocation> searchRoots(Map<String, String> env, Path osDefault, Path userTools, Path programTools) {
+        List<ToolLocation> roots = new ArrayList<>();
+        String v = env.get("LOCALAPPS");
+        if (v != null && !v.isBlank()) roots.add(new ToolLocation(Path.of(v), "LOCALAPPS"));
+        if (userTools != null) roots.add(new ToolLocation(userTools, "Benutzerordner"));
+        if (programTools != null) roots.add(new ToolLocation(programTools, "Programmordner"));
+        if (roots.stream().noneMatch(r -> r.dir().equals(osDefault))) roots.add(new ToolLocation(osDefault, "Standard"));
+        return roots;
+    }
+
+    /** Folder of the first installed KoSIT validator (jar + scenarios.xml), or null. */
+    static ToolLocation kosit() {
+        for (ToolLocation root : searchRoots()) {
+            Path dir = root.dir().resolve(KOSIT);
+            if (kositJarIn(dir) != null) return new ToolLocation(dir, root.origin());
+        }
+        return null;
+    }
+
+    /** Folder of the first installed veraPDF (bin/ with the CLI jar), or null. */
+    static ToolLocation verapdf() {
+        for (ToolLocation root : searchRoots()) {
+            Path dir = root.dir().resolve(VERAPDF);
+            if (verapdfIn(dir)) return new ToolLocation(dir, root.origin());
+        }
+        return null;
+    }
+
+    static Path kositJarIn(Path dir) {
         if (!Files.isDirectory(dir) || !Files.isRegularFile(dir.resolve("scenarios.xml"))) return null;
         try (DirectoryStream<Path> s = Files.newDirectoryStream(dir, "validator-*-standalone.jar")) {
             for (Path p : s) return p;
@@ -56,8 +100,28 @@ final class Validators {
         return null;
     }
 
+    static boolean verapdfIn(Path dir) {
+        try (DirectoryStream<Path> s = Files.newDirectoryStream(dir.resolve("bin"), "cli-*.jar")) {
+            return s.iterator().hasNext();
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    static Path kositJar() {
+        ToolLocation l = kosit();
+        return l == null ? null : kositJarIn(l.dir());
+    }
+
     static boolean verapdfAvailable() {
-        return Files.isDirectory(verapdfDir().resolve("bin"));
+        return verapdf() != null;
+    }
+
+    /** Human readable list of the searched folders, for "not installed" hints. */
+    static String searchedFolders(String tool) {
+        StringBuilder sb = new StringBuilder();
+        for (ToolLocation r : searchRoots()) sb.append("\n  ").append(r.dir().resolve(tool)).append(" (").append(r.origin()).append(')');
+        return sb.toString();
     }
 
     /** Runs all enabled validators for the final PDF and the XML files, reports go to {@code reportDir}. */
@@ -82,7 +146,14 @@ final class Validators {
             String last = null;
             while (m.find()) last = m.group(1);
             int errors = count(xml, "<error"), warnings = count(xml, "<warning");
-            if (!"valid".equals(last)) return new Check("Mustang", target, Status.FAIL, errors + " Fehler, " + warnings + " Warnungen", report);
+            int pdfaFailures = count(xml, "status=failed"); // PDF/A (veraPDF) assertions are reported inside <pdf>
+            if (!"valid".equals(last)) {
+                List<String> parts = new ArrayList<>();
+                if (pdfaFailures > 0) parts.add("PDF/A: " + pdfaFailures + " Verstöße" + firstClause(xml));
+                if (errors > 0) parts.add(errors + " Fehler");
+                if (warnings > 0) parts.add(warnings + " Warnungen");
+                return new Check("Mustang", target, Status.FAIL, parts.isEmpty() ? "ungültig" : String.join(", ", parts), report);
+            }
             return new Check("Mustang", target, warnings > 0 ? Status.WARN : Status.OK,
                     warnings > 0 ? warnings + " Warnungen" : "gültig", report);
         } catch (Exception e) {
@@ -92,15 +163,17 @@ final class Validators {
 
     static Check kosit(Path xml, Path reportDir) {
         String target = xml.getFileName().toString();
-        Path jar = kositJar();
-        if (jar == null) return new Check("KoSIT", target, Status.MISSING, "nicht installiert (" + kositDir() + ")", null);
+        ToolLocation loc = kosit();
+        if (loc == null) return new Check("KoSIT", target, Status.MISSING, "nicht installiert – herunterladbar", null);
+        Path dir = loc.dir();
+        Path jar = kositJarIn(dir);
         Path log = reportDir.resolve(stem(xml) + "-kosit.log");
         try {
             Path empty = Files.createTempFile("kosit-stdin", ".in");
             try {
                 // KoSIT probes stdin to detect piped input; on Windows that fails without a real stdin file
                 Process p = new ProcessBuilder(java(), "-jar", jar.toString(),
-                        "-s", kositDir().resolve("scenarios.xml").toString(), "-r", kositDir().toString(),
+                        "-s", dir.resolve("scenarios.xml").toString(), "-r", dir.toString(),
                         "-o", reportDir.toString(), "-h", xml.toAbsolutePath().toString())
                         .redirectInput(empty.toFile())
                         .redirectErrorStream(true)
@@ -132,10 +205,11 @@ final class Validators {
 
     static Check verapdf(Path pdf, Path reportDir) {
         String target = pdf.getFileName().toString();
-        if (!verapdfAvailable()) return new Check("veraPDF", target, Status.MISSING, "nicht installiert (" + verapdfDir() + ")", null);
+        ToolLocation loc = verapdf();
+        if (loc == null) return new Check("veraPDF", target, Status.MISSING, "nicht installiert – herunterladbar", null);
         Path report = reportDir.resolve(stem(pdf) + "-verapdf-3b.xml");
         try {
-            Path dir = verapdfDir();
+            Path dir = loc.dir();
             String cp = dir.resolve("etc") + File.pathSeparator + dir.resolve("bin") + File.separator + "*";
             Process p = new ProcessBuilder(java(), "-cp", cp, "--add-exports=java.base/sun.security.pkcs=ALL-UNNAMED",
                     "org.verapdf.apps.GreenfieldCliWrapper", "--flavour", "3b", "--format", "xml", pdf.toAbsolutePath().toString())
@@ -166,6 +240,12 @@ final class Validators {
         String n = p.getFileName().toString();
         int dot = n.lastIndexOf('.');
         return dot > 0 ? n.substring(0, dot) : n;
+    }
+
+    /** " (z. B. ISO 19005-3:2012 6.2.11.7.2)" for the first failed PDF/A rule, or "". */
+    private static String firstClause(String mustangReport) {
+        Matcher m = Pattern.compile("specification=([^,\\]]+), clause=([^,\\]]+)").matcher(mustangReport);
+        return m.find() ? " (z. B. " + m.group(1) + " " + m.group(2) + ")" : "";
     }
 
     private static int count(String s, String token) {

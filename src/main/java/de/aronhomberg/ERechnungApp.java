@@ -46,9 +46,27 @@ public final class ERechnungApp {
     private final JTextArea log = new JTextArea(7, 80);
     private final List<JComponent> busyDisabled = new ArrayList<>();
 
+    private final JButton kositDownload = linkButton("herunterladen …", e -> downloadTool(ToolDownloader.Tool.KOSIT));
+    private final JButton verapdfDownload = linkButton("herunterladen …", e -> downloadTool(ToolDownloader.Tool.VERAPDF));
+
     public static void main(String[] args) {
+        // macOS: menu in the screen menu bar and proper app name (ignored on other systems); must precede any AWT use
+        System.setProperty("apple.laf.useScreenMenuBar", "true");
+        System.setProperty("apple.awt.application.name", "easy-e-rechnung");
         FlatLightLaf.setup();
         SwingUtilities.invokeLater(() -> new ERechnungApp().show());
+    }
+
+    /**
+     * Default output folder: {@code rechnungen.out} when started from the repository, otherwise the user's
+     * documents folder – never the working directory of an installed app (often "/" or a protected folder).
+     */
+    static Path defaultOutDir(Path workingDir, Path home) {
+        if (Files.isRegularFile(workingDir.resolve("build.gradle.kts"))) return workingDir.resolve("rechnungen.out");
+        for (String docs : List.of("Documents", "Dokumente")) {
+            if (Files.isDirectory(home.resolve(docs))) return home.resolve(docs).resolve("E-Rechnungen");
+        }
+        return home.resolve("E-Rechnungen");
     }
 
     private void show() {
@@ -90,8 +108,12 @@ public final class ERechnungApp {
         file.addSeparator();
         file.add(exit);
         JMenu extras = new JMenu("Extras");
+        JMenuItem tools = new JMenuItem("Prüfprogramme (KoSIT, veraPDF) …");
+        tools.addActionListener(e -> toolsDialog());
         JMenuItem old = new JMenuItem("Alte OCR-Oberfläche starten");
         old.addActionListener(e -> startOldApp());
+        extras.add(tools);
+        extras.addSeparator();
         extras.add(old);
         bar.add(file);
         bar.add(extras);
@@ -106,7 +128,8 @@ public final class ERechnungApp {
 
         excelField.setText(PREFS.get("excel", ""));
         excelField.setEditable(false);
-        outField.setText(PREFS.get("out", Path.of("rechnungen.out").toAbsolutePath().toString()));
+        outField.setText(PREFS.get("out", defaultOutDir(Path.of(System.getProperty("user.dir")).toAbsolutePath(),
+                Path.of(System.getProperty("user.home"))).toString()));
         outField.setEditable(false);
 
         JButton chooseExcel = button("Excel wählen …", e -> chooseExcel());
@@ -123,8 +146,7 @@ public final class ERechnungApp {
         kositBox.setSelected(PREFS.getBoolean("kosit", false));
         verapdfBox.setSelected(PREFS.getBoolean("verapdf", false));
         mustangBox.setToolTipText("XML-Schema, EN16931-Regeln und PDF/A (im Programm enthalten)");
-        tool(kositBox, Validators.kositJar() != null, "KoSIT-Prüftool (EN16931 / XRechnung)", Validators.kositDir());
-        tool(verapdfBox, Validators.verapdfAvailable(), "veraPDF (PDF/A-3b)", Validators.verapdfDir());
+        refreshTools();
         for (JCheckBox b : List.of(xrechnungBox, mustangBox, kositBox, verapdfBox)) {
             b.addActionListener(e -> savePrefs());
         }
@@ -133,7 +155,9 @@ public final class ERechnungApp {
         opts.add(new JLabel("   Prüfen mit:"));
         opts.add(mustangBox);
         opts.add(kositBox);
+        opts.add(kositDownload);
         opts.add(verapdfBox);
+        opts.add(verapdfDownload);
         c.gridx = 1;
         c.gridy = 2;
         c.gridwidth = 3;
@@ -192,6 +216,7 @@ public final class ERechnungApp {
         p.add(new JScrollPane(resultTable), BorderLayout.CENTER);
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttons.add(button("PDF öffnen", e -> openSelected("pdf")));
+        buttons.add(button("XML öffnen", e -> openSelected("xml")));
         buttons.add(button("Ordner öffnen", e -> openSelected("dir")));
         buttons.add(button("Prüfbericht öffnen", e -> openSelected("checks")));
         p.add(buttons, BorderLayout.SOUTH);
@@ -332,6 +357,7 @@ public final class ERechnungApp {
         if (r.result == null) return;
         Path target = switch (what) {
             case "pdf" -> r.result.pdf();
+            case "xml" -> r.result.facturX();
             case "checks" -> r.result.dir().resolve(OutputLayout.CHECKS).resolve("zusammenfassung.txt");
             default -> r.result.dir();
         };
@@ -340,6 +366,73 @@ public final class ERechnungApp {
         } catch (Exception ex) {
             error("Öffnen", ex);
         }
+    }
+
+    /** Enables KoSIT/veraPDF only when installed; the "herunterladen …" link is shown for missing tools. */
+    private void refreshTools() {
+        Validators.ToolLocation kosit = Validators.kosit(), vera = Validators.verapdf();
+        tool(kositBox, kosit, "KoSIT-Prüftool (EN16931 / XRechnung)", Validators.KOSIT);
+        tool(verapdfBox, vera, "veraPDF (PDF/A-3b)", Validators.VERAPDF);
+        kositDownload.setVisible(kosit == null);
+        verapdfDownload.setVisible(vera == null);
+    }
+
+    /** Asks for confirmation (source, target folder, size, license), then downloads in the background. */
+    private void downloadTool(ToolDownloader.Tool tool) {
+        Path target = AppDirs.downloadTarget();
+        Path program = AppDirs.programTools();
+        String where = target.equals(program) ? "Programmordner"
+                : "Benutzerordner" + (program != null ? " (der Programmordner ist schreibgeschützt)" : "");
+        String msg = "<html><b>" + tool.title + "</b> aus der offiziellen Quelle laden?<br><br>"
+                + "Quelle: " + tool.source() + "<br>"
+                + "Ziel: " + target.resolve(tool.folder) + " – " + where + "<br>"
+                + "Größe: ca. " + tool.approxMb + " MB<br>"
+                + "Lizenz: " + tool.license + "<br><br>"
+                + "Die Dateien werden per HTTPS geladen und, soweit angeboten, per SHA-256 geprüft.<br>"
+                + "Sonst greift das Programm nicht auf das Internet zu.</html>";
+        if (JOptionPane.showConfirmDialog(frame, msg, "Prüfprogramm herunterladen", JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.QUESTION_MESSAGE) != JOptionPane.OK_OPTION) return;
+        log("Download " + tool.title + " nach " + target + " …");
+        runInBackground("Download " + tool.title, () -> {
+            Path dir = ToolDownloader.install(tool, target, msg1 -> SwingUtilities.invokeLater(() -> log(msg1)));
+            SwingUtilities.invokeLater(() -> {
+                refreshTools();
+                JCheckBox box = tool == ToolDownloader.Tool.KOSIT ? kositBox : verapdfBox;
+                if (box.isEnabled()) box.setSelected(true);
+                savePrefs();
+                log(tool.title + " installiert: " + dir + " (" + ToolDownloader.installedVersion(dir) + ")");
+            });
+        });
+    }
+
+    /** Where the validators are installed (and which version), with download/update actions. */
+    private void toolsDialog() {
+        StringBuilder sb = new StringBuilder("<html><b>Mustang</b>: im Programm enthalten<br><br>");
+        for (ToolDownloader.Tool t : List.of(ToolDownloader.Tool.KOSIT, ToolDownloader.Tool.VERAPDF)) {
+            Validators.ToolLocation loc = t == ToolDownloader.Tool.KOSIT ? Validators.kosit() : Validators.verapdf();
+            sb.append("<b>").append(t.title).append("</b>: ");
+            if (loc == null) sb.append("nicht installiert");
+            else sb.append(ToolDownloader.installedVersion(loc.dir())).append("<br>&nbsp;&nbsp;").append(loc.dir())
+                    .append(" (").append(loc.origin()).append(")");
+            sb.append("<br><br>");
+        }
+        sb.append("Download-Ziel: ").append(AppDirs.downloadTarget()).append("<br>")
+          .append("„Laden / aktualisieren“ holt die jeweils neueste Version aus der offiziellen Quelle.</html>");
+        Object[] options = {"KoSIT laden / aktualisieren", "veraPDF laden / aktualisieren", "Schließen"};
+        int choice = JOptionPane.showOptionDialog(frame, sb.toString(), "Prüfprogramme", JOptionPane.DEFAULT_OPTION,
+                JOptionPane.INFORMATION_MESSAGE, null, options, options[2]);
+        if (choice == 0) downloadTool(ToolDownloader.Tool.KOSIT);
+        if (choice == 1) downloadTool(ToolDownloader.Tool.VERAPDF);
+    }
+
+    private JButton linkButton(String text, java.awt.event.ActionListener action) {
+        JButton b = button(text, action);
+        b.setBorderPainted(false);
+        b.setContentAreaFilled(false);
+        b.setForeground(new Color(0x1565C0));
+        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        b.setToolTipText("Aus der offiziellen Quelle laden (mit Rückfrage)");
+        return b;
     }
 
     private void saveTemplate() {
@@ -420,10 +513,15 @@ public final class ERechnungApp {
         return b;
     }
 
-    private static void tool(JCheckBox box, boolean installed, String what, Path dir) {
+    /** Enabled only if the tool is installed; otherwise greyed out with a hint that it can be downloaded. */
+    private static void tool(JCheckBox box, Validators.ToolLocation loc, String what, String toolFolder) {
+        boolean installed = loc != null;
         box.setEnabled(installed);
         if (!installed) box.setSelected(false);
-        box.setToolTipText(installed ? what + " – " + dir : what + " nicht installiert (erwartet in " + dir + ")");
+        box.setToolTipText(installed
+                ? "<html>" + what + "<br>" + loc.dir() + " (" + loc.origin() + ")</html>"
+                : "<html>" + what + " ist nicht installiert – über „herunterladen …“ daneben laden.<br>Gesucht in:"
+                  + Validators.searchedFolders(toolFolder).replace("\n", "<br>") + "</html>");
     }
 
     private static JLabel hint(String text) {
