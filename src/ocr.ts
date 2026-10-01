@@ -24,6 +24,9 @@ import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 
 const execAsync = promisify(exec);
+// Local Ollama runs on the CPU when there is no GPU: one glm-ocr page took
+// ~4.5 min on a 15 W laptop, and the JSON step reads up to 10k context tokens.
+const LOCAL_LLM_TIMEOUT_MS = 20 * 60_000;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -188,7 +191,7 @@ class LLMClient {
   private async runOCROllama(base64: string): Promise<string> {
     const response = await fetch(`${this.baseUrl}/api/chat`, {
       method: 'POST',
-      signal: AbortSignal.timeout(5 * 60_000),
+      signal: AbortSignal.timeout(LOCAL_LLM_TIMEOUT_MS),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: this.model,
@@ -199,18 +202,43 @@ class LLMClient {
             images: [base64],
           },
         ],
-        stream: false,
-        ...(this.reasoning && { options: { num_ctx: 16384 } }),
+        // Streamed: glm-ocr often fails to stop after the last line and Ollama
+        // then aborts with "token repeat limit reached". The text up to that
+        // point is the complete page, so it is kept instead of thrown away.
+        stream: true,
+        // Ollama's default context (4096) is too small: a 3 MP page alone takes
+        // ~3900 image tokens, so the transcription would be cut off mid-page.
+        options: { num_ctx: 16384 },
       }),
     });
 
-    if (!response.ok) {
+    if (!response.ok || !response.body) {
       const body = await response.text().catch(() => '(no body)');
       throw new Error(`OCR-Anfrage fehlgeschlagen (Ollama /api/chat): HTTP ${response.status} — ${body}`);
     }
 
-    const data = await response.json() as { message?: { content?: string } };
-    const content = data.message?.content;
+    let content = '';
+    let buffered = '';
+    const decoder = new TextDecoder();
+    const handleLine = (line: string) => {
+      if (!line.trim()) return;
+      const chunk = JSON.parse(line) as { message?: { content?: string }; error?: string };
+      if (chunk.error) {
+        if (chunk.error.includes('token repeat limit') && content.trim()) {
+          console.warn(`[OCR] Ollama brach nach dem Text ab (${chunk.error}) — Text wird übernommen`);
+          return;
+        }
+        throw new Error(`OCR-Anfrage fehlgeschlagen (Ollama /api/chat): ${chunk.error}`);
+      }
+      content += chunk.message?.content ?? '';
+    };
+    for await (const bytes of response.body as unknown as AsyncIterable<Uint8Array>) {
+      buffered += decoder.decode(bytes, { stream: true });
+      const lines = buffered.split('\n');
+      buffered = lines.pop() ?? '';
+      lines.forEach(handleLine);
+    }
+    handleLine(buffered + decoder.decode());
     if (!content) throw new Error('OCR-Modell lieferte eine leere Antwort');
     return content.trim();
   }
@@ -370,7 +398,7 @@ Return ONLY valid JSON matching exactly this structure:
 
     const response = await fetch(url, {
       method: 'POST',
-      signal: AbortSignal.timeout(5 * 60_000),
+      signal: AbortSignal.timeout(LOCAL_LLM_TIMEOUT_MS),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
