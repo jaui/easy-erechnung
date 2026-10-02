@@ -9,10 +9,10 @@
  *   bun run src/ocr.ts --input invoice.pdf --output result.json \
  *     [--seller-address "Str. 1, 12345 City"] [--seller-tax-no "123/456/78900"] \
  *     [--base-url http://localhost:11434] [--api-key no-key] \
- *     [--ocr-model glm-ocr:q8_0] [--json-model qwen3:4b-q8_0]
+ *     [--ocr-model glm-ocr:q8_0] [--json-model qwen3:4b-q8_0] [--timeout-min 20]
  *
  * Env vars (all optional, CLI flags take precedence):
- *   LLM_BASE_URL   LLM_API_KEY   OCR_MODEL   JSON_MODEL
+ *   LLM_BASE_URL   LLM_API_KEY   OCR_MODEL   JSON_MODEL   LLM_TIMEOUT_MIN
  */
 
 import { exec, spawn } from 'child_process';
@@ -24,9 +24,10 @@ import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 
 const execAsync = promisify(exec);
-// Local Ollama runs on the CPU when there is no GPU: one glm-ocr page took
-// ~4.5 min on a 15 W laptop, and the JSON step reads up to 10k context tokens.
-const LOCAL_LLM_TIMEOUT_MS = 20 * 60_000;
+// Default per-request timeout. Ollama runs on the CPU when there is no GPU: one
+// glm-ocr page took ~4.5 min on a 15 W laptop, and the JSON step reads up to
+// 10k context tokens; a NAS CPU is slower still (--timeout-min / LLM_TIMEOUT_MIN).
+const DEFAULT_LLM_TIMEOUT_MIN = 20;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -50,6 +51,7 @@ class LLMClient {
     public readonly apiKey: string,
     public readonly model: string,
     public readonly reasoning: boolean,
+    public readonly timeoutMs: number,
   ) {}
 
   private isLocalhost(): boolean {
@@ -191,7 +193,7 @@ class LLMClient {
   private async runOCROllama(base64: string): Promise<string> {
     const response = await fetch(`${this.baseUrl}/api/chat`, {
       method: 'POST',
-      signal: AbortSignal.timeout(LOCAL_LLM_TIMEOUT_MS),
+      signal: AbortSignal.timeout(this.timeoutMs),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: this.model,
@@ -249,7 +251,7 @@ class LLMClient {
 
     const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
       method: 'POST',
-      signal: AbortSignal.timeout(5 * 60_000),
+      signal: AbortSignal.timeout(this.timeoutMs),
       headers: this.authHeaders(),
       body: JSON.stringify({
         model: this.model,
@@ -398,7 +400,7 @@ Return ONLY valid JSON matching exactly this structure:
 
     const response = await fetch(url, {
       method: 'POST',
-      signal: AbortSignal.timeout(LOCAL_LLM_TIMEOUT_MS),
+      signal: AbortSignal.timeout(this.timeoutMs),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
@@ -425,7 +427,7 @@ Return ONLY valid JSON matching exactly this structure:
 
     const response = await fetch(url, {
       method: 'POST',
-      signal: AbortSignal.timeout(5 * 60_000),
+      signal: AbortSignal.timeout(this.timeoutMs),
       headers: this.authHeaders(),
       body: JSON.stringify({
         model: this.model,
@@ -582,6 +584,8 @@ interface ParsedArgs {
   ocrApiKey: string;
   ocrModel: string;
   ocrReasoning: boolean;
+  // Per-request timeout for OCR and JSON calls
+  timeoutMin: number;
 }
 
 function parseArgs(): ParsedArgs {
@@ -607,6 +611,7 @@ function parseArgs(): ParsedArgs {
     ocrApiKey:     process.env.OCR_API_KEY    ?? '',
     ocrModel:      process.env.OCR_MODEL      ?? 'glm-ocr:q8_0',
     ocrReasoning:  process.env.OCR_REASONING  === 'true',
+    timeoutMin:    Number(process.env.LLM_TIMEOUT_MIN ?? DEFAULT_LLM_TIMEOUT_MIN),
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -631,6 +636,7 @@ function parseArgs(): ParsedArgs {
       case '--ocr-api-key':    result.ocrApiKey     = argv[++i]; break;
       case '--ocr-model':      result.ocrModel      = argv[++i]; break;
       case '--ocr-reasoning':  result.ocrReasoning  = argv[++i] === 'true'; break;
+      case '--timeout-min':    result.timeoutMin    = Number(argv[++i]); break;
       // Legacy args — silently ignore
       case '--base-url':       i++; break;
       case '--api-key':        i++; break;
@@ -645,9 +651,16 @@ function parseArgs(): ParsedArgs {
     console.error('               [--my-plz <PLZ>] [--my-ort <Ort>] [--my-land <Land>] [--my-tax-id <StNr/UStID>]');
     console.error('               [--json-base-url <URL>] [--json-api-key <Schlüssel>] [--json-model <Modell>] [--json-reasoning <true|false>]');
     console.error('               [--ocr-base-url <URL>] [--ocr-api-key <Schlüssel>] [--ocr-model <Modell>] [--ocr-reasoning <true|false>]');
+    console.error(`               [--timeout-min <Minuten pro LLM-Anfrage, Standard ${DEFAULT_LLM_TIMEOUT_MIN}>]`);
     console.error('');
     console.error('Umgebungsvariablen: JSON_BASE_URL  JSON_API_KEY  JSON_MODEL  JSON_REASONING');
     console.error('                    OCR_BASE_URL   OCR_API_KEY   OCR_MODEL   OCR_REASONING');
+    console.error('                    LLM_TIMEOUT_MIN');
+    process.exit(1);
+  }
+
+  if (!Number.isFinite(result.timeoutMin) || result.timeoutMin <= 0) {
+    console.error(`FEHLER: Ungültiges Timeout "${result.timeoutMin}" — erwartet wird eine Minutenzahl größer 0 (--timeout-min / LLM_TIMEOUT_MIN)`);
     process.exit(1);
   }
 
@@ -699,10 +712,13 @@ async function main() {
   console.log(`Modell       : ${args.ocrModel}`);
   console.log(`Reasoning    : ${args.ocrReasoning ? 'aktiviert' : 'deaktiviert'}`);
   console.log('');
+  console.log(`Timeout pro LLM-Anfrage: ${args.timeoutMin} min`);
+  console.log('');
 
   // Create separate LLM clients for JSON and OCR models
-  const jsonLlm = new LLMClient(jsonBaseUrl, jsonApiKey, args.jsonModel, args.jsonReasoning);
-  const ocrLlm = new LLMClient(ocrBaseUrl, ocrApiKey, args.ocrModel, args.ocrReasoning);
+  const timeoutMs = Math.round(args.timeoutMin * 60_000);
+  const jsonLlm = new LLMClient(jsonBaseUrl, jsonApiKey, args.jsonModel, args.jsonReasoning, timeoutMs);
+  const ocrLlm = new LLMClient(ocrBaseUrl, ocrApiKey, args.ocrModel, args.ocrReasoning, timeoutMs);
 
   console.log('Prüfe ob JSON LLM-Server erreichbar ist...');
   await jsonLlm.ensureServerRunning();
