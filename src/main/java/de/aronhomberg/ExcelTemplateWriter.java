@@ -91,7 +91,7 @@ public final class ExcelTemplateWriter {
                     {"Rechnungsnummer", "September/2026"},
                     {"Rechnungsdatum", LocalDate.of(2026, 9, 30)},
                     {"Kunde", "MUSTER"},
-                    {"Bestellnummer", "PO 4711"},
+                    {"Bestellnummer", "4711"},
                     {"Käuferreferenz", ""},
                     {"Leistungszeitraum von", LocalDate.of(2026, 9, 1)},
                     {"Leistungszeitraum bis", LocalDate.of(2026, 9, 30)},
@@ -101,6 +101,7 @@ public final class ExcelTemplateWriter {
                 Row r = inv.createRow(i);
                 cell(r, 0, head[i][0], st.bold, st);
                 cell(r, 1, head[i][1], null, st);
+                if ("Bestellnummer".equals(head[i][0])) cell(r, 2, "PO", null, st);
             }
             Row control = inv.createRow(head.length);
             cell(control, 0, "Gesamtbetrag", st.bold, st);
