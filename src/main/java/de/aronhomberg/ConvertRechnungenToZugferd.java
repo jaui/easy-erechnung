@@ -319,6 +319,7 @@ public final class ConvertRechnungenToZugferd {
         if (src.DocumentCurrencyCode == null || src.DocumentCurrencyCode.isBlank()) {
             src.DocumentCurrencyCode = "EUR";
         }
+        src.OrderReference = orderNumber(src.OrderReference);
 
         // Legally relevant data is never invented: missing values abort instead of being guessed.
         if (src.InvoiceDate == null || src.InvoiceDate.isBlank()) {
@@ -396,6 +397,20 @@ public final class ConvertRechnungenToZugferd {
     private static String digitsOnlyIban(String iban) {
         if (iban == null) return "";
         return iban.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
+    }
+
+    /** "PO 4711", "PO-4711", "PO-Nr.: 4711", "PO4711" – a label in front of the number, not part of it. */
+    private static final Pattern PO_LABEL = Pattern.compile("(?i)PO(?:[\\s.:#-]*Nr\\.?)?[\\s.:#-]*(\\d.*)");
+
+    /**
+     * BT-13 is the buyer's order number itself: a leading "PO" label is removed, because receivers compare
+     * the number with their order (and some limit its length, e.g. to 12 characters). Other values stay as they are.
+     */
+    static String orderNumber(String value) {
+        if (value == null || value.isBlank()) return null;
+        String v = value.trim();
+        Matcher m = PO_LABEL.matcher(v);
+        return m.matches() ? m.group(1).trim() : v;
     }
 
     static String firstNonBlank(String... values) {

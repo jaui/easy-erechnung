@@ -91,7 +91,7 @@ public final class ExcelTemplateWriter {
                     {"Rechnungsnummer", "September/2026"},
                     {"Rechnungsdatum", LocalDate.of(2026, 9, 30)},
                     {"Kunde", "MUSTER"},
-                    {"Bestellnummer", "PO 4711"},
+                    {"Bestellnummer", "4711"},
                     {"Käuferreferenz", ""},
                     {"Leistungszeitraum von", LocalDate.of(2026, 9, 1)},
                     {"Leistungszeitraum bis", LocalDate.of(2026, 9, 30)},

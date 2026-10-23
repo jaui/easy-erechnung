@@ -111,7 +111,7 @@ public final class BuildZugferdInvoice {
                 .setCurrency("EUR")
                 .setSender(seller)
                 .setRecipient(buyer)
-                .setBuyerOrderReferencedDocumentID("PO 4711")
+                .setBuyerOrderReferencedDocumentID("4711")
                 .setPaymentTermDescription("Zahlbar innerhalb von 14 Tagen ohne Abzug.")
                 .setOwnOrganisationFullPlaintextInfo(
                         "Max Mustermann, Musterweg 1, 01067 Dresden, Steuernummer 201/123/45678");

@@ -251,6 +251,30 @@ class ERechnungServiceTest {
     }
 
     @Test
+    void orderNumberIsWrittenWithoutPoLabel(@TempDir Path out) throws Exception {
+        InvoiceResponse.Invoice data = fresh();
+        data.OrderReference = "PO 5000041667";
+        ERechnungService.Result r = ERechnungService.fromData(data, out, MUSTANG, QUIET);
+        assertTrue(r.ok(), () -> r.checks().toString());
+        String xml = Files.readString(r.facturX());
+        assertTrue(xml.contains("<ram:IssuerAssignedID>5000041667</ram:IssuerAssignedID>"), xml);
+        assertFalse(xml.contains("PO 5000041667"));
+    }
+
+    @Test
+    void poLabelIsRemovedFromOrderNumber() {
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("PO 5000041667"));
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber(" po-5000041667 "));
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("PO-Nr.: 5000041667"));
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("PO5000041667"));
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("5000041667"));
+        // not a label: kept as it is
+        assertEquals("POS-17", ConvertRechnungenToZugferd.orderNumber("POS-17"));
+        assertEquals("PO ABC", ConvertRechnungenToZugferd.orderNumber("PO ABC"));
+        assertNull(ConvertRechnungenToZugferd.orderNumber("  "));
+    }
+
+    @Test
     void plausibilityAcceptsMatchingPdfText() {
         assertTrue(ERechnungService.plausibility("Rechnung September/2026 ... Rechnungsbetrag 330,00 €", sample).isEmpty());
         assertEquals(2, ERechnungService.plausibility("irgendein anderer Text 12,00", sample).size());
