@@ -83,6 +83,7 @@ class ExcelInvoiceReaderTest {
     @Test
     void duplicateSetupKeyFailsTheWholeRead() throws Exception {
         // the Setup block is read once for all invoices, so read() itself fails
+        Path xlsx = workbook("doppelt.xlsx", wb -> {
             Sheet setup = wb.getSheet(ExcelInvoiceReader.SETUP);
             Row r = setup.createRow(setup.getLastRowNum() + 1);
             r.createCell(0).setCellValue("IBAN");
