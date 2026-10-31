@@ -155,6 +155,8 @@ A name that appears twice in `Setup` or in an invoice head is rejected with shee
 
 Files are produced in a staging folder and only moved into place when generation **and validation** succeeded. If an active validator rejects the invoice, nothing is replaced: the previous valid invoice stays as it is, and the rejected run is kept in `_letzter-fehlversuch/` for diagnosis (the app shows a red traffic light and a hint; the command line exits with an error). The next successful run removes `_letzter-fehlversuch/`. Only the files above are touched.
 
+Characters outside letters, digits, `.`, `_` and `-` in invoice numbers are escaped in folder names (for example a space becomes `~20~`). Earlier versions replaced them with `_`, so existing invoices with such numbers stay in their old folders and new runs use new folders. Check old folders before reusing their names: earlier versions could map different invoice numbers to the same folder. Case-insensitive filesystems can still treat numbers differing only in case as the same folder.
+
 ### 🔤 Fonts
 
 - **Generated PDFs** (Excel → e-invoice) use the bundled **Liberation Sans** (metric-compatible with Arial), embedded as a subset; no system font is needed. Liberation Sans is licensed under the SIL Open Font License 1.1, see [`src/main/resources/fonts/LICENSE-LiberationSans.txt`](src/main/resources/fonts/LICENSE-LiberationSans.txt). It is also the fallback for the § 19 note when the font of your PDF is not installed.

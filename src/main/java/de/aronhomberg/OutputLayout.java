@@ -40,7 +40,15 @@ final class OutputLayout {
     }
 
     static OutputLayout of(Path outRoot, String invoiceNumber) {
-        String name = "Rechnung_" + invoiceNumber.trim().replaceAll("[^\\p{L}\\p{N}._-]+", "_");
+        // Escape every unsupported code point, including the escape marker itself.
+        // Replacing with an underscore loses identity (for example A/B and A_B).
+        StringBuilder encoded = new StringBuilder();
+        invoiceNumber.trim().codePoints().forEach(cp -> {
+            String c = new String(Character.toChars(cp));
+            if (c.matches("[\\p{L}\\p{N}._-]")) encoded.append(c);
+            else encoded.append('~').append(Integer.toHexString(cp)).append('~');
+        });
+        String name = "Rechnung_" + encoded;
         return new OutputLayout(name, outRoot.resolve(name));
     }
 

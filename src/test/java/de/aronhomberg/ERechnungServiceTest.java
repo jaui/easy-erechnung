@@ -146,13 +146,13 @@ class ERechnungServiceTest {
         ERechnungService.Result r = ERechnungService.fromData(fresh(), out, MUSTANG, QUIET);
 
         assertTrue(r.ok(), () -> r.checks().toString());
-        assertEquals("Rechnung_September_2026", r.name());
+        assertEquals("Rechnung_September~20~2026", r.name());
         // no buyer reference in the template -> no XRechnung, but a note
         assertNull(r.xrechnung());
         assertTrue(r.warnings().stream().anyMatch(w -> w.contains("Käuferreferenz")));
         try (Stream<Path> s = Files.list(r.dir())) {
             Set<String> top = s.map(p -> p.getFileName().toString()).collect(Collectors.toSet());
-            assertEquals(Set.of("Rechnung_September_2026.pdf", "Rechnung_September_2026-factur-x.xml",
+            assertEquals(Set.of("Rechnung_September~20~2026.pdf", "Rechnung_September~20~2026-factur-x.xml",
                     "_pruefung", "_zwischenschritte"), top);
         }
         assertTrue(Files.isRegularFile(r.dir().resolve("_pruefung/zusammenfassung.txt")));
