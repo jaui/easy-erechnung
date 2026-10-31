@@ -399,12 +399,18 @@ public final class ConvertRechnungenToZugferd {
         return iban.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
     }
 
-    /** "PO 4711", "PO-4711", "PO-Nr.: 4711", "PO4711" – a label in front of the number, not part of it. */
-    private static final Pattern PO_LABEL = Pattern.compile("(?i)PO(?:[\\s.:#-]*Nr\\.?)?[\\s.:#-]*(\\d.*)");
+    /**
+     * A "PO" label in front of the number: "PO 4711", "PO: 4711", "PO#4711", "PO Nr. 4711", "PO-Nr.: 4711".
+     * Without a separator ("PO4711", "PO-2026-001") "PO" is taken as part of the identifier, as purchasing
+     * systems issue such numbers.
+     */
+    private static final Pattern PO_LABEL = Pattern.compile(
+            "(?i)PO(?:[\\s.-]*Nr\\.?[\\s.:#]*|\\s*[.:#][\\s.:#]*|\\s+)(\\d.*)");
 
     /**
      * BT-13 is the buyer's order number itself: a leading "PO" label is removed, because receivers compare
      * the number with their order (and some limit its length, e.g. to 12 characters). Other values stay as they are.
+     * {@link ERechnungService} reports a removed label as a note.
      */
     static String orderNumber(String value) {
         if (value == null || value.isBlank()) return null;

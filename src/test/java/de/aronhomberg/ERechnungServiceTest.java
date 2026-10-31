@@ -260,15 +260,32 @@ class ERechnungServiceTest {
         String xml = Files.readString(r.facturX());
         assertTrue(xml.contains("<ram:IssuerAssignedID>5000041667</ram:IssuerAssignedID>"), xml);
         assertFalse(xml.contains("PO 5000041667"));
+        // not silent: the change is reported
+        assertTrue(r.warnings().stream().anyMatch(w -> w.contains("PO 5000041667") && w.contains("„5000041667“")),
+                r.warnings().toString());
+    }
+
+    @Test
+    void orderNumberWithoutLabelGivesNoNote(@TempDir Path out) throws Exception {
+        InvoiceResponse.Invoice data = fresh();
+        data.OrderReference = "PO-2026-001";
+        ERechnungService.Result r = ERechnungService.fromData(data, out, MUSTANG, QUIET);
+        assertTrue(Files.readString(r.facturX()).contains("<ram:IssuerAssignedID>PO-2026-001</ram:IssuerAssignedID>"));
+        assertTrue(r.warnings().stream().noneMatch(w -> w.contains("BT-13")), r.warnings().toString());
     }
 
     @Test
     void poLabelIsRemovedFromOrderNumber() {
         assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("PO 5000041667"));
-        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber(" po-5000041667 "));
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber(" po 5000041667 "));
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("PO: 5000041667"));
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("PO#5000041667"));
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("PO Nr. 5000041667"));
         assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("PO-Nr.: 5000041667"));
-        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("PO5000041667"));
         assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("5000041667"));
+        // no separator: "PO" is part of the identifier (purchasing systems issue such numbers)
+        assertEquals("PO5000041667", ConvertRechnungenToZugferd.orderNumber("PO5000041667"));
+        assertEquals("PO-2026-001", ConvertRechnungenToZugferd.orderNumber("PO-2026-001"));
         // not a label: kept as it is
         assertEquals("POS-17", ConvertRechnungenToZugferd.orderNumber("POS-17"));
         assertEquals("PO ABC", ConvertRechnungenToZugferd.orderNumber("PO ABC"));

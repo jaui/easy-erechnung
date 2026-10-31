@@ -63,13 +63,16 @@ final class ERechnungService {
         applyDefaultPeriod(data);
         OutputLayout target = OutputLayout.of(outRoot, data.InvoiceNumber);
         progress.step(target.name + ": Daten prüfen");
+        String order = data.OrderReference;
         Invoice mustang = ConvertRechnungenToZugferd.toMustangInvoice(data, target.name);
+        List<String> warnings = new ArrayList<>();
+        orderNumberNote(order, data, warnings);
         OutputLayout s = target.staging();
         try {
             progress.step(target.name + ": PDF erstellen");
             Path visual = s.work("visuell.pdf");
             InvoicePdfRenderer.render(data, visual);
-            return finish(data, mustang, visual, target, s, new ArrayList<>(), List.of(), opt, progress);
+            return finish(data, mustang, visual, target, s, warnings, List.of(), opt, progress);
         } catch (Exception e) {
             OutputLayout.deleteRecursively(s.dir);
             throw e;
@@ -81,10 +84,12 @@ final class ERechnungService {
         OutputLayout target = OutputLayout.of(outRoot, data.InvoiceNumber);
         progress.step(target.name + ": Original-PDF prüfen");
         checkOriginal(originalPdf);
+        String order = data.OrderReference;
         Invoice mustang = ConvertRechnungenToZugferd.toMustangInvoice(data, target.name);
         OutputLayout s = target.staging();
         try {
             List<String> warnings = new ArrayList<>();
+            orderNumberNote(order, data, warnings);
             Path original = s.work("original.pdf");
             Files.copy(originalPdf, original, StandardCopyOption.REPLACE_EXISTING);
 
@@ -142,6 +147,13 @@ final class ERechnungService {
             OutputLayout.deleteRecursively(s.dir);
             throw e;
         }
+    }
+
+    /** The order number (BT-13) is written without a "PO" label; say so instead of changing it silently. */
+    private static void orderNumberNote(String before, InvoiceResponse.Invoice data, List<String> warnings) {
+        if (before == null || data.OrderReference == null || before.trim().equals(data.OrderReference)) return;
+        warnings.add("Bestellnummer (BT-13) „" + before.trim() + "“ ohne PO-Kennzeichnung als „"
+                + data.OrderReference + "“ übernommen");
     }
 
     private static Result finish(InvoiceResponse.Invoice data, Invoice mustang, Path visual, OutputLayout target,
