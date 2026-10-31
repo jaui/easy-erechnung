@@ -123,7 +123,8 @@ class ERechnungServiceTest {
         assertArrayEquals(goodPdf, Files.readAllBytes(good.pdf()));
         assertArrayEquals(goodXml, Files.readAllBytes(good.facturX()));
         try (Stream<Path> s = Files.list(good.dir())) {
-            assertEquals(Set.of(good.name() + ".pdf", good.name() + "-factur-x.xml", "_pruefung", "_zwischenschritte"),
+            assertEquals(Set.of(good.name() + ".pdf", good.name() + "-factur-x.xml", "_pruefung", "_zwischenschritte",
+                            OutputLayout.MARKER),
                     s.map(p -> p.getFileName().toString()).collect(Collectors.toSet()));
         }
         try (Stream<Path> s = Files.list(out)) {
@@ -136,7 +137,7 @@ class ERechnungServiceTest {
         ERechnungService.Result bad = withRejectingValidator(() -> ERechnungService.fromData(fresh(), out, MUSTANG, QUIET));
         Path dir = out.resolve(bad.name());
         try (Stream<Path> s = Files.list(dir)) {
-            assertEquals(Set.of(OutputLayout.FAILED), s.map(p -> p.getFileName().toString()).collect(Collectors.toSet()));
+            assertEquals(Set.of(OutputLayout.FAILED, OutputLayout.MARKER), s.map(p -> p.getFileName().toString()).collect(Collectors.toSet()));
         }
         assertFalse(Files.exists(dir.resolve(bad.name() + ".pdf")));
     }
@@ -146,14 +147,14 @@ class ERechnungServiceTest {
         ERechnungService.Result r = ERechnungService.fromData(fresh(), out, MUSTANG, QUIET);
 
         assertTrue(r.ok(), () -> r.checks().toString());
-        assertEquals("Rechnung_September~20~2026", r.name());
+        assertEquals("Rechnung_September_2026", r.name());
         // no buyer reference in the template -> no XRechnung, but a note
         assertNull(r.xrechnung());
         assertTrue(r.warnings().stream().anyMatch(w -> w.contains("Käuferreferenz")));
         try (Stream<Path> s = Files.list(r.dir())) {
             Set<String> top = s.map(p -> p.getFileName().toString()).collect(Collectors.toSet());
-            assertEquals(Set.of("Rechnung_September~20~2026.pdf", "Rechnung_September~20~2026-factur-x.xml",
-                    "_pruefung", "_zwischenschritte"), top);
+            assertEquals(Set.of("Rechnung_September_2026.pdf", "Rechnung_September_2026-factur-x.xml",
+                    "_pruefung", "_zwischenschritte", OutputLayout.MARKER), top);
         }
         assertTrue(Files.isRegularFile(r.dir().resolve("_pruefung/zusammenfassung.txt")));
         // no staging folders left behind

@@ -80,16 +80,23 @@ public final class ExcelInvoiceReader {
      * valid invoice of the earlier sheet. The later sheet is rejected, the first one stays untouched.
      */
     private static List<ExcelInvoice> rejectDuplicateNumbers(List<ExcelInvoice> in) {
-        Map<String, String> firstSheet = new HashMap<>();
+        Map<String, ExcelInvoice> firstSheet = new HashMap<>();
         List<ExcelInvoice> out = new ArrayList<>();
         for (ExcelInvoice ei : in) {
             if (ei.error() != null) { out.add(ei); continue; }
-            String id = OutputLayout.of(Path.of(""), ei.data().InvoiceNumber).name.toLowerCase(Locale.ROOT);
-            String first = firstSheet.putIfAbsent(id, ei.sheet());
-            if (first == null) out.add(ei);
-            else out.add(new ExcelInvoice(ei.sheet(), null, "Blatt \"" + ei.sheet() + "\": Rechnungsnummer \""
-                    + ei.data().InvoiceNumber + "\" kommt bereits in Blatt \"" + first
-                    + "\" vor – Rechnungsnummern müssen eindeutig sein"));
+            String number = ei.data().InvoiceNumber;
+            // same folder name = same output folder (A/B and A_B; case-insensitive on Windows)
+            String id = OutputLayout.folderName(number).toLowerCase(Locale.ROOT);
+            ExcelInvoice first = firstSheet.putIfAbsent(id, ei);
+            if (first == null) { out.add(ei); continue; }
+            String other = first.data().InvoiceNumber;
+            String why = other.trim().equals(number.trim())
+                    ? "kommt bereits in Blatt \"" + first.sheet() + "\" vor – Rechnungsnummern müssen eindeutig sein"
+                    : "ergibt denselben Ausgabeordner wie \"" + other + "\" in Blatt \"" + first.sheet()
+                      + "\" – bitte Rechnungsnummern verwenden, die sich nicht nur in Sonderzeichen oder "
+                      + "Groß-/Kleinschreibung unterscheiden";
+            out.add(new ExcelInvoice(ei.sheet(), null, "Blatt \"" + ei.sheet() + "\": Rechnungsnummer \""
+                    + number + "\" " + why));
         }
         return out;
     }

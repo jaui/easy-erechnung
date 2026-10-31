@@ -1,6 +1,7 @@
 package de.aronhomberg;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,6 +21,7 @@ import java.util.stream.Stream;
  *   _pruefung/                     validator reports + zusammenfassung.txt
  *   _zwischenschritte/             original and intermediate PDFs
  *   _letzter-fehlversuch/          only after a run that a validator rejected: its complete output
+ *   _rechnungsnummer.txt           original invoice number the folder belongs to ({@link #checkOwner})
  * </pre>
  * Files are produced in a staging folder and only moved into place when generation <b>and validation</b>
  * succeeded ({@link #commit}), so a failed or rejected run never replaces the previous valid invoice.
@@ -30,30 +32,63 @@ final class OutputLayout {
     static final String CHECKS = "_pruefung";
     static final String WORK = "_zwischenschritte";
     static final String FAILED = "_letzter-fehlversuch";
+    /** Holds the original invoice number of the folder, to detect two numbers sharing one folder name. */
+    static final String MARKER = "_rechnungsnummer.txt";
 
     final String name;
     final Path dir;
+    /** Original (trimmed) invoice number; {@code null} for staging and failed-run layouts. */
+    private final String invoiceNumber;
 
-    private OutputLayout(String name, Path dir) {
+    private OutputLayout(String name, Path dir, String invoiceNumber) {
         this.name = name;
         this.dir = dir;
+        this.invoiceNumber = invoiceNumber;
     }
 
     static OutputLayout of(Path outRoot, String invoiceNumber) {
-        // Escape every unsupported code point, including the escape marker itself.
-        // Replacing with an underscore loses identity (for example A/B and A_B).
-        StringBuilder encoded = new StringBuilder();
-        invoiceNumber.trim().codePoints().forEach(cp -> {
-            String c = new String(Character.toChars(cp));
-            if (c.matches("[\\p{L}\\p{N}._-]")) encoded.append(c);
-            else encoded.append('~').append(Integer.toHexString(cp)).append('~');
-        });
-        String name = "Rechnung_" + encoded;
-        return new OutputLayout(name, outRoot.resolve(name));
+        String number = invoiceNumber.trim();
+        String name = folderName(number);
+        return new OutputLayout(name, outRoot.resolve(name), number);
+    }
+
+    /**
+     * Readable folder/file name: characters outside letters, digits, {@code . _ -} become {@code _}, so the
+     * customer gets {@code Rechnung_2026_001.pdf}, not an escaped name. Trailing dots also become {@code _}
+     * because Windows silently drops them ({@code R1.} would end up in the folder of {@code R1}).
+     * Different numbers can map to the same name (A/B and A_B, or RE-1 and re-1 on Windows);
+     * {@link #checkOwner()} detects that through {@link #MARKER} and refuses to replace the other invoice.
+     */
+    static String folderName(String invoiceNumber) {
+        String n = invoiceNumber.trim().replaceAll("[^\\p{L}\\p{N}._-]+", "_");
+        n = n.replaceAll("\\.+$", "_");
+        return "Rechnung_" + n;
+    }
+
+    /**
+     * Fails if the target folder belongs to a different invoice number that maps to the same folder name.
+     * Folders from versions without the marker are taken over (their number cannot be known).
+     */
+    void checkOwner() throws IOException {
+        Path marker = dir.resolve(MARKER);
+        if (invoiceNumber == null || !Files.isRegularFile(marker)) return;
+        String owner = Files.readString(marker, StandardCharsets.UTF_8).trim();
+        if (!owner.equals(invoiceNumber)) {
+            throw new IOException("Ordner " + dir + " gehört zur Rechnungsnummer \"" + owner + "\", nicht zu \""
+                    + invoiceNumber + "\" (gleicher Ordnername) – die vorhandene Rechnung wird nicht ersetzt. "
+                    + "Bitte eine eindeutige Rechnungsnummer oder einen anderen Ausgabeordner verwenden.");
+        }
+    }
+
+    private void writeOwner() throws IOException {
+        if (invoiceNumber == null) return;
+        Path marker = dir.resolve(MARKER);
+        if (!Files.isRegularFile(marker)) Files.writeString(marker, invoiceNumber + "\n", StandardCharsets.UTF_8);
     }
 
     /** A fresh staging layout next to the target (same volume, so the final move is cheap). */
     OutputLayout staging() throws IOException {
+        checkOwner(); // fail before any work is done, not only at the final move
         Path tmp;
         try {
             Files.createDirectories(dir.getParent());
@@ -62,7 +97,7 @@ final class OutputLayout {
             throw new IOException("Ausgabeordner nicht beschreibbar: " + dir.getParent()
                     + " – bitte einen anderen Ausgabeordner wählen", e);
         }
-        OutputLayout s = new OutputLayout(name, tmp);
+        OutputLayout s = new OutputLayout(name, tmp, null);
         Files.createDirectories(s.checks());
         Files.createDirectories(s.work());
         return s;
@@ -78,7 +113,7 @@ final class OutputLayout {
     Path failed() { return dir.resolve(FAILED); }
 
     /** The layout of the last rejected run inside this invoice folder. */
-    OutputLayout failedLayout() { return new OutputLayout(name, failed()); }
+    OutputLayout failedLayout() { return new OutputLayout(name, failed(), null); }
 
     /**
      * Replaces the generated files of {@code this} with the content of {@code staged} (validated run).
@@ -88,6 +123,7 @@ final class OutputLayout {
      */
     void commit(OutputLayout staged) throws IOException {
         Files.createDirectories(dir);
+        checkOwner(); // another run may have claimed the folder meanwhile
         Path aside = Files.createTempDirectory(dir, ".alt-");
         List<Path> moved = new ArrayList<>();
         try {
@@ -112,6 +148,7 @@ final class OutputLayout {
         deleteRecursively(aside);
         deleteRecursively(staged.dir);
         deleteRecursively(failed()); // an older rejected attempt is obsolete now
+        writeOwner();
     }
 
     /**
@@ -120,8 +157,10 @@ final class OutputLayout {
      */
     void keepFailed(OutputLayout staged) throws IOException {
         Files.createDirectories(dir);
+        checkOwner();
         deleteRecursively(failed());
         Files.move(staged.dir, failed(), StandardCopyOption.ATOMIC_MOVE);
+        writeOwner();
     }
 
     /** Moves a new file into place; replaceable in tests to simulate a locked file. */
