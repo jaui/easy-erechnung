@@ -157,6 +157,8 @@ Files are produced in a staging folder and only moved into place when generation
 
 Characters outside letters, digits, `.`, `_` and `-` in invoice numbers are escaped in folder names (for example a space becomes `~20~`). Earlier versions replaced them with `_`, so existing invoices with such numbers stay in their old folders and new runs use new folders. Check old folders before reusing their names: earlier versions could map different invoice numbers to the same folder. Case-insensitive filesystems can still treat numbers differing only in case as the same folder.
 
+Invoice numbers must be unique within one workbook: if a later sheet uses the same invoice number as an earlier one, that later sheet is rejected with a message naming both sheets, and the invoice of the earlier sheet is not touched. Formula cells (e.g. `="RE-"&TEXT(B2;"0000")`) are read by their calculated result; a formula that yields an error value aborts the sheet with the cell address.
+
 ### 🔤 Fonts
 
 - **Generated PDFs** (Excel → e-invoice) use the bundled **Liberation Sans** (metric-compatible with Arial), embedded as a subset; no system font is needed. Liberation Sans is licensed under the SIL Open Font License 1.1, see [`src/main/resources/fonts/LICENSE-LiberationSans.txt`](src/main/resources/fonts/LICENSE-LiberationSans.txt). It is also the fallback for the § 19 note when the font of your PDF is not installed.

@@ -179,4 +179,18 @@ class ExcelInvoiceReaderTest {
         assertTrue(list.get(0).error().contains("Fehlerwert"), list.get(0).error());
         assertTrue(list.get(0).error().contains("B1"), list.get(0).error());
     }
+
+    @Test
+    void duplicateInvoiceNumberRejectsLaterSheetAndNamesBoth() throws Exception {
+        Path two = workbook("doppelt2.xlsx", wb -> {
+            wb.setSheetName(wb.getSheetIndex(INVOICE_SHEET), "A");
+            wb.cloneSheet(wb.getSheetIndex("A"));
+            wb.setSheetName(wb.getNumberOfSheets() - 1, "B");
+        });
+        List<ExcelInvoiceReader.ExcelInvoice> list = ExcelInvoiceReader.read(two);
+        assertEquals(2, list.size());
+        assertNull(list.get(0).error());
+        assertNotNull(list.get(1).error());
+        assertTrue(list.get(1).error().contains("\"A\"") && list.get(1).error().contains("\"B\""), list.get(1).error());
+    }
 }

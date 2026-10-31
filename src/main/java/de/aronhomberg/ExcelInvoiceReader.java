@@ -71,8 +71,27 @@ public final class ExcelInvoiceReader {
                     result.add(new ExcelInvoice(name, null, e.getMessage()));
                 }
             }
-            return result;
+            return rejectDuplicateNumbers(result);
         }
+    }
+
+    /**
+     * The invoice number must be unique within one run: a later sheet with the same number would replace the
+     * valid invoice of the earlier sheet. The later sheet is rejected, the first one stays untouched.
+     */
+    private static List<ExcelInvoice> rejectDuplicateNumbers(List<ExcelInvoice> in) {
+        Map<String, String> firstSheet = new HashMap<>();
+        List<ExcelInvoice> out = new ArrayList<>();
+        for (ExcelInvoice ei : in) {
+            if (ei.error() != null) { out.add(ei); continue; }
+            String id = OutputLayout.of(Path.of(""), ei.data().InvoiceNumber).name.toLowerCase(Locale.ROOT);
+            String first = firstSheet.putIfAbsent(id, ei.sheet());
+            if (first == null) out.add(ei);
+            else out.add(new ExcelInvoice(ei.sheet(), null, "Blatt \"" + ei.sheet() + "\": Rechnungsnummer \""
+                    + ei.data().InvoiceNumber + "\" kommt bereits in Blatt \"" + first
+                    + "\" vor – Rechnungsnummern müssen eindeutig sein"));
+        }
+        return out;
     }
 
     private static InvoiceResponse.Invoice invoice(Sheet sheet, Map<String, Cell> setup,
