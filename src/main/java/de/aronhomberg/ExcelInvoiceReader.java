@@ -4,6 +4,7 @@ import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.DateUtil;
+import org.apache.poi.ss.usermodel.FormulaError;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -43,6 +44,11 @@ public final class ExcelInvoiceReader {
     public static final String CUSTOMERS = "Kunden";
     private static final DateTimeFormatter DE_DATE = DateTimeFormatter.ofPattern("d.M.yyyy");
     private static final DataFormatter FORMATTER = new DataFormatter(Locale.GERMANY);
+
+    static {
+        // Formula cells yield their (already evaluated) result, never the formula text.
+        FORMATTER.setUseCachedValuesForFormulaCells(true);
+    }
 
     /** One invoice sheet mapped onto the converter's JSON model, or the reason why it could not be read. */
     public record ExcelInvoice(String sheet, InvoiceResponse.Invoice data, String error) {}
@@ -274,7 +280,7 @@ public final class ExcelInvoiceReader {
 
     private static LocalDate date(Cell cell, String where) {
         if (cell == null) return null;
-        if (cell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
+        if (numericResult(cell) && DateUtil.isCellDateFormatted(cell)) {
             return cell.getLocalDateTimeCellValue().toLocalDate();
         }
         String t = text(cell);
@@ -288,10 +294,8 @@ public final class ExcelInvoiceReader {
 
     private static double number(Cell cell, String where, double fallback) {
         if (cell == null) return fallback;
-        if (cell.getCellType() == CellType.NUMERIC) return cell.getNumericCellValue();
-        if (cell.getCellType() == CellType.FORMULA && cell.getCachedFormulaResultType() == CellType.NUMERIC) {
-            return cell.getNumericCellValue();
-        }
+        checkNoError(cell);
+        if (numericResult(cell)) return cell.getNumericCellValue();
         String t = text(cell);
         if (isBlank(t)) return fallback;
         String n = t.replace("€", "").replace(" ", "");
@@ -304,8 +308,26 @@ public final class ExcelInvoiceReader {
         }
     }
 
+    private static CellType resultType(Cell cell) {
+        return cell.getCellType() == CellType.FORMULA ? cell.getCachedFormulaResultType() : cell.getCellType();
+    }
+
+    private static boolean numericResult(Cell cell) {
+        return resultType(cell) == CellType.NUMERIC;
+    }
+
+    /** An error value (e.g. #NAME? or #DIV/0!) must never end up in an invoice as text. */
+    private static void checkNoError(Cell cell) {
+        if (resultType(cell) == CellType.ERROR) {
+            throw new IllegalArgumentException("Blatt \"" + cell.getSheet().getSheetName() + "\", Zelle "
+                    + cell.getAddress().formatAsString() + ": Formel liefert einen Fehlerwert ("
+                    + FormulaError.forInt(cell.getErrorCellValue()).getString() + ") statt eines Ergebnisses");
+        }
+    }
+
     private static String text(Cell cell) {
         if (cell == null) return null;
+        checkNoError(cell);
         String t = FORMATTER.formatCellValue(cell).trim();
         return t.isEmpty() ? null : t;
     }

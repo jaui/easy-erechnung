@@ -83,7 +83,6 @@ class ExcelInvoiceReaderTest {
     @Test
     void duplicateSetupKeyFailsTheWholeRead() throws Exception {
         // the Setup block is read once for all invoices, so read() itself fails
-        Path xlsx = workbook("doppelt.xlsx", wb -> {
             Sheet setup = wb.getSheet(ExcelInvoiceReader.SETUP);
             Row r = setup.createRow(setup.getLastRowNum() + 1);
             r.createCell(0).setCellValue("IBAN");
@@ -157,5 +156,27 @@ class ExcelInvoiceReaderTest {
                 LocaleUtil.resetUserTimeZone();
             }
         }
+    }
+
+    @Test
+    void formulaCellsAreReadAsTheirResult() throws Exception {
+        Path xlsx = workbook("formel.xlsx", wb -> {
+            Sheet inv = wb.getSheet(INVOICE_SHEET);
+            inv.getRow(0).getCell(1).setCellFormula("\"RE-\"&TEXT(7,\"0000\")"); // Rechnungsnummer
+            inv.getRow(1).getCell(1).setCellFormula("DATE(2026,9,30)");           // Rechnungsdatum
+        });
+        InvoiceResponse.Invoice inv = single(xlsx);
+        assertEquals("RE-0007", inv.InvoiceNumber);
+        assertEquals("2026-09-30", inv.InvoiceDate);
+    }
+
+    @Test
+    void formulaErrorValueAbortsTheSheetWithClearMessage() throws Exception {
+        Path xlsx = workbook("formel-fehler.xlsx", wb ->
+                wb.getSheet(INVOICE_SHEET).getRow(0).getCell(1).setCellFormula("1/0"));
+        List<ExcelInvoiceReader.ExcelInvoice> list = ExcelInvoiceReader.read(xlsx);
+        assertNull(list.get(0).data());
+        assertTrue(list.get(0).error().contains("Fehlerwert"), list.get(0).error());
+        assertTrue(list.get(0).error().contains("B1"), list.get(0).error());
     }
 }
