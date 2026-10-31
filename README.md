@@ -151,9 +151,14 @@ A name that appears twice in `Setup` or in an invoice head is rejected with shee
   _pruefung/                     validator reports + zusammenfassung.txt
   _zwischenschritte/             original PDF and intermediate PDFs
   _letzter-fehlversuch/          only after a run that a validator rejected (complete output + reports)
+  _rechnungsnummer.txt           the invoice number this folder belongs to
 ```
 
 Files are produced in a staging folder and only moved into place when generation **and validation** succeeded. If an active validator rejects the invoice, nothing is replaced: the previous valid invoice stays as it is, and the rejected run is kept in `_letzter-fehlversuch/` for diagnosis (the app shows a red traffic light and a hint; the command line exits with an error). The next successful run removes `_letzter-fehlversuch/`. Only the files above are touched.
+
+In folder and file names, characters outside letters, digits, `.`, `_` and `-` become `_` (`2026/001` → `Rechnung_2026_001.pdf`), and so does a trailing dot (Windows would drop it). Different numbers can therefore share a folder name (`A/B` and `A_B`, or `RE-1` and `re-1` on Windows). `_rechnungsnummer.txt` records which number a folder belongs to; a run for a different number with the same folder name is refused with an error instead of replacing that invoice. Within one workbook such numbers are already rejected when reading. Folders from older versions have no such file and are taken over by the next run with that folder name.
+
+Invoice numbers must be unique within one workbook: if a later sheet uses the same invoice number as an earlier one, that later sheet is rejected with a message naming both sheets, and the invoice of the earlier sheet is not touched. Formula cells (e.g. `="RE-"&TEXT(B2;"0000")`) are read by their calculated result; a formula that yields an error value aborts the sheet with the cell address.
 
 ### 🔤 Fonts
 

@@ -158,4 +158,40 @@ class ExcelInvoiceReaderTest {
             }
         }
     }
+
+    @Test
+    void formulaCellsAreReadAsTheirResult() throws Exception {
+        Path xlsx = workbook("formel.xlsx", wb -> {
+            Sheet inv = wb.getSheet(INVOICE_SHEET);
+            inv.getRow(0).getCell(1).setCellFormula("\"RE-\"&TEXT(7,\"0000\")"); // Rechnungsnummer
+            inv.getRow(1).getCell(1).setCellFormula("DATE(2026,9,30)");           // Rechnungsdatum
+        });
+        InvoiceResponse.Invoice inv = single(xlsx);
+        assertEquals("RE-0007", inv.InvoiceNumber);
+        assertEquals("2026-09-30", inv.InvoiceDate);
+    }
+
+    @Test
+    void formulaErrorValueAbortsTheSheetWithClearMessage() throws Exception {
+        Path xlsx = workbook("formel-fehler.xlsx", wb ->
+                wb.getSheet(INVOICE_SHEET).getRow(0).getCell(1).setCellFormula("1/0"));
+        List<ExcelInvoiceReader.ExcelInvoice> list = ExcelInvoiceReader.read(xlsx);
+        assertNull(list.get(0).data());
+        assertTrue(list.get(0).error().contains("Fehlerwert"), list.get(0).error());
+        assertTrue(list.get(0).error().contains("B1"), list.get(0).error());
+    }
+
+    @Test
+    void duplicateInvoiceNumberRejectsLaterSheetAndNamesBoth() throws Exception {
+        Path two = workbook("doppelt2.xlsx", wb -> {
+            wb.setSheetName(wb.getSheetIndex(INVOICE_SHEET), "A");
+            wb.cloneSheet(wb.getSheetIndex("A"));
+            wb.setSheetName(wb.getNumberOfSheets() - 1, "B");
+        });
+        List<ExcelInvoiceReader.ExcelInvoice> list = ExcelInvoiceReader.read(two);
+        assertEquals(2, list.size());
+        assertNull(list.get(0).error());
+        assertNotNull(list.get(1).error());
+        assertTrue(list.get(1).error().contains("\"A\"") && list.get(1).error().contains("\"B\""), list.get(1).error());
+    }
 }

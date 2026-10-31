@@ -123,7 +123,8 @@ class ERechnungServiceTest {
         assertArrayEquals(goodPdf, Files.readAllBytes(good.pdf()));
         assertArrayEquals(goodXml, Files.readAllBytes(good.facturX()));
         try (Stream<Path> s = Files.list(good.dir())) {
-            assertEquals(Set.of(good.name() + ".pdf", good.name() + "-factur-x.xml", "_pruefung", "_zwischenschritte"),
+            assertEquals(Set.of(good.name() + ".pdf", good.name() + "-factur-x.xml", "_pruefung", "_zwischenschritte",
+                            OutputLayout.MARKER),
                     s.map(p -> p.getFileName().toString()).collect(Collectors.toSet()));
         }
         try (Stream<Path> s = Files.list(out)) {
@@ -136,7 +137,7 @@ class ERechnungServiceTest {
         ERechnungService.Result bad = withRejectingValidator(() -> ERechnungService.fromData(fresh(), out, MUSTANG, QUIET));
         Path dir = out.resolve(bad.name());
         try (Stream<Path> s = Files.list(dir)) {
-            assertEquals(Set.of(OutputLayout.FAILED), s.map(p -> p.getFileName().toString()).collect(Collectors.toSet()));
+            assertEquals(Set.of(OutputLayout.FAILED, OutputLayout.MARKER), s.map(p -> p.getFileName().toString()).collect(Collectors.toSet()));
         }
         assertFalse(Files.exists(dir.resolve(bad.name() + ".pdf")));
     }
@@ -153,7 +154,7 @@ class ERechnungServiceTest {
         try (Stream<Path> s = Files.list(r.dir())) {
             Set<String> top = s.map(p -> p.getFileName().toString()).collect(Collectors.toSet());
             assertEquals(Set.of("Rechnung_September_2026.pdf", "Rechnung_September_2026-factur-x.xml",
-                    "_pruefung", "_zwischenschritte"), top);
+                    "_pruefung", "_zwischenschritte", OutputLayout.MARKER), top);
         }
         assertTrue(Files.isRegularFile(r.dir().resolve("_pruefung/zusammenfassung.txt")));
         // no staging folders left behind
@@ -248,6 +249,47 @@ class ERechnungServiceTest {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> ERechnungService.fromPdf(fresh(), first.pdf(), out.resolve("again"), MUSTANG, QUIET));
         assertTrue(e.getMessage().contains("bereits eine E-Rechnung"));
+    }
+
+    @Test
+    void orderNumberIsWrittenWithoutPoLabel(@TempDir Path out) throws Exception {
+        InvoiceResponse.Invoice data = fresh();
+        data.OrderReference = "PO 5000041667";
+        ERechnungService.Result r = ERechnungService.fromData(data, out, MUSTANG, QUIET);
+        assertTrue(r.ok(), () -> r.checks().toString());
+        String xml = Files.readString(r.facturX());
+        assertTrue(xml.contains("<ram:IssuerAssignedID>5000041667</ram:IssuerAssignedID>"), xml);
+        assertFalse(xml.contains("PO 5000041667"));
+        // not silent: the change is reported
+        assertTrue(r.warnings().stream().anyMatch(w -> w.contains("PO 5000041667") && w.contains("„5000041667“")),
+                r.warnings().toString());
+    }
+
+    @Test
+    void orderNumberWithoutLabelGivesNoNote(@TempDir Path out) throws Exception {
+        InvoiceResponse.Invoice data = fresh();
+        data.OrderReference = "PO-2026-001";
+        ERechnungService.Result r = ERechnungService.fromData(data, out, MUSTANG, QUIET);
+        assertTrue(Files.readString(r.facturX()).contains("<ram:IssuerAssignedID>PO-2026-001</ram:IssuerAssignedID>"));
+        assertTrue(r.warnings().stream().noneMatch(w -> w.contains("BT-13")), r.warnings().toString());
+    }
+
+    @Test
+    void poLabelIsRemovedFromOrderNumber() {
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("PO 5000041667"));
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber(" po 5000041667 "));
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("PO: 5000041667"));
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("PO#5000041667"));
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("PO Nr. 5000041667"));
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("PO-Nr.: 5000041667"));
+        assertEquals("5000041667", ConvertRechnungenToZugferd.orderNumber("5000041667"));
+        // no separator: "PO" is part of the identifier (purchasing systems issue such numbers)
+        assertEquals("PO5000041667", ConvertRechnungenToZugferd.orderNumber("PO5000041667"));
+        assertEquals("PO-2026-001", ConvertRechnungenToZugferd.orderNumber("PO-2026-001"));
+        // not a label: kept as it is
+        assertEquals("POS-17", ConvertRechnungenToZugferd.orderNumber("POS-17"));
+        assertEquals("PO ABC", ConvertRechnungenToZugferd.orderNumber("PO ABC"));
+        assertNull(ConvertRechnungenToZugferd.orderNumber("  "));
     }
 
     @Test
