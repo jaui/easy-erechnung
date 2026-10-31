@@ -42,7 +42,7 @@ public class ERechnungValidator extends ZUGFeRDValidator {
         return parseValidationResult(xmlResult);
     }
 
-    private static ValidationResult parseValidationResult(String xmlResult) {
+    static ValidationResult parseValidationResult(String xmlResult) {
         List<String> messages = new ArrayList<>();
         List<String> errors = new ArrayList<>();
         List<String> notices = new ArrayList<>();
@@ -50,6 +50,11 @@ public class ERechnungValidator extends ZUGFeRDValidator {
 
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            factory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+            factory.setXIncludeAware(false);
+            factory.setExpandEntityReferences(false);
             DocumentBuilder builder = factory.newDocumentBuilder();
             Document doc = builder.parse(new InputSource(new StringReader(xmlResult)));
 
@@ -92,6 +97,10 @@ public class ERechnungValidator extends ZUGFeRDValidator {
 
             // Check final validation status
             NodeList finalSummary = doc.getElementsByTagName("summary");
+            if (finalSummary.getLength() == 0) {
+                isValid = false;
+                messages.add("Validierungsbericht enthält keinen Status.");
+            }
             if (finalSummary.getLength() > 0) {
                 Element summaryElement = (Element) finalSummary.item(finalSummary.getLength() - 1);
                 if (!"valid".equals(summaryElement.getAttribute("status"))) {
